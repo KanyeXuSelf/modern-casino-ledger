@@ -18,6 +18,7 @@ const syncContext = {
   statusText: DEFAULT_SYNC_TEXT,
   initialized: false,
   manager: null,
+  channel: null,
   pendingTimer: null,
   pushing: false,
   queuedSnapshot: null,
@@ -586,6 +587,7 @@ async function connectAuthorizedWorkspace() {
   setSyncStatus("connecting", "正在连接共享账本数据库。");
 
   try {
+    await teardownSyncManager();
     syncContext.manager = createSupabaseManager();
     await syncContext.manager.bootstrap();
     syncContext.initialized = true;
@@ -593,11 +595,25 @@ async function connectAuthorizedWorkspace() {
     render();
   } catch (error) {
     syncContext.initialized = true;
-    syncContext.manager = null;
+    await teardownSyncManager();
     console.error("sync bootstrap failed", error);
     setSyncStatus("error", "云端连接失败，当前仍可在本机使用。");
     render();
   }
+}
+
+async function teardownSyncManager() {
+  if (syncContext.pendingTimer) {
+    clearTimeout(syncContext.pendingTimer);
+    syncContext.pendingTimer = null;
+  }
+  syncContext.pushing = false;
+  syncContext.queuedSnapshot = null;
+  syncContext.manager = null;
+  if (syncContext.channel && authContext.client) {
+    await authContext.client.removeChannel(syncContext.channel);
+  }
+  syncContext.channel = null;
 }
 
 function createSupabaseManager() {
@@ -621,7 +637,7 @@ function createSupabaseManager() {
         await pushRemoteState(cloneState(state));
       }
 
-      client
+      syncContext.channel = client
         .channel(`poker-ledger:${config.workspaceId}`)
         .on(
           "postgres_changes",
@@ -675,7 +691,7 @@ async function initializeAuth() {
       await connectAuthorizedWorkspace();
     } else {
       if (!canAccessFullLedger()) {
-        syncContext.manager = null;
+        await teardownSyncManager();
         setSyncStatus("locked", "已连接 Supabase，等待成员登录后加载完整账本。");
       }
       render();
@@ -745,7 +761,7 @@ async function signOutMember() {
   await authContext.client.auth.signOut();
   authContext.user = null;
   authContext.member = null;
-  syncContext.manager = null;
+  await teardownSyncManager();
   setSyncStatus("locked", "已退出登录，完整账本功能已锁定。");
   renderAuthState();
   render();
