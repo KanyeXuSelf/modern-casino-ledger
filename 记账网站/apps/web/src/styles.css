@@ -39,6 +39,7 @@ body {
   color: var(--ink);
   font-family: var(--font-body);
   font-variant-numeric: tabular-nums lining-nums;
+  overflow-x: hidden;
   background:
     linear-gradient(180deg, rgba(3, 9, 18, 0.2), rgba(3, 9, 18, 0.72)),
     url("./assets/modern-casino-bg.svg") center/cover fixed no-repeat,
@@ -1056,15 +1057,35 @@ button:focus-visible {
   color: var(--ink);
 }
 
+@media (max-width: 1100px) {
+  .hero {
+    grid-template-columns: 1fr;
+  }
+
+  .profit-panel-grid,
+  .stats-layout,
+  .finance-stack .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .player-live-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settlement-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .settlement-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 960px) {
   .hero,
   .login-stage,
   .menu-grid,
-  .stats-layout,
   .session-summary-grid,
-  .player-live-grid,
-  .settlement-summary-grid,
-  .settlement-detail-grid,
   .grid.two,
   .grid.three,
   .grid.four,
@@ -1072,15 +1093,32 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .section-head,
   .player-card-summary,
   .player-card-toggle,
-  .session-info-bar {
+  .session-info-bar,
+  .session-item-top,
+  .leaderboard-row {
     flex-direction: column;
     align-items: stretch;
   }
 
   .auth-inline {
     grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding: 24px;
+  }
+
+  .hero-panel,
+  .card,
+  .subcard {
+    border-radius: 24px;
+  }
+
+  .card {
+    padding: 20px;
   }
 
   .login-stage {
@@ -1092,8 +1130,339 @@ button:focus-visible {
     justify-self: stretch;
   }
 
+  .menu-button {
+    min-height: 120px;
+  }
+
+  .draft-stage-bar .toolbar,
+  .section-head .toolbar,
+  .player-card-summary .toolbar {
+    width: 100%;
+  }
+
+  .draft-stage-bar .toolbar > *,
+  .section-head .toolbar > *,
+  .player-card-summary .toolbar > * {
+    flex: 1 1 auto;
+  }
+
+  .player-summary-cashout-action,
+  .buyin-action-field .inline-action,
+  .cashout-action .inline-action,
+  .inline-action {
+    grid-template-columns: 1fr;
+  }
+
+  .player-live-grid,
+  .settlement-summary-grid,
+  .settlement-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .session-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .partner-row .grid.five {
+    grid-template-columns: 1fr;
+  }
+
+  .history-filter {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .wide-modal,
+  .rebuy-modal,
+  .gate-login-dialog {
+    width: min(100%, calc(100% - 16px));
+  }
+
+  .rebuy-modal form {
+    padding: 20px;
+  }
+
   .page-shell {
     width: min(100% - 20px, 1280px);
     padding-top: 20px;
+  }
+}
+
+@media (max-width: 720px) {
+  .page-shell {
+    width: min(100% - 16px, 1280px);
+    padding: 14px 0 32px;
+  }
+
+  .layout {
+    gap: 16px;
+    margin-top: 16px;
+  }
+
+  .hero {
+    gap: 16px;
+    padding: 18px;
+    border-radius: 22px;
+  }
+
+  .hero-title-block,
+  .hero-brand {
+    gap: 12px;
+  }
+
+  h1 {
+    font-size: clamp(2.1rem, 10vw, 3.2rem);
+    line-height: 0.98;
+  }
+
+  h2 {
+    font-size: 1.45rem;
+  }
+
+  h3 {
+    font-size: 1.08rem;
+  }
+
+  .hero-copy {
+    margin-top: 10px;
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+
+  .hero-panel,
+  .card,
+  .subcard {
+    border-radius: 20px;
+  }
+
+  .hero-panel,
+  .card,
+  .subcard,
+  .finance-stack {
+    padding: 16px;
+  }
+
+  .section-head {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .section-head.compact {
+    margin-bottom: 10px;
+  }
+
+  .login-card,
+  .login-stage {
+    min-height: auto;
+  }
+
+  .login-stage {
+    padding: 22px 18px;
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  .login-stage-copy h2 {
+    font-size: clamp(2rem, 10vw, 3rem);
+    line-height: 1;
+  }
+
+  .login-stage-tags {
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  .login-stage-tags span {
+    padding: 8px 12px;
+    font-size: 0.82rem;
+  }
+
+  .login-stage-action {
+    width: 100%;
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .menu-grid {
+    gap: 12px;
+  }
+
+  .menu-button {
+    min-height: 104px;
+    padding: 18px;
+  }
+
+  .menu-button span {
+    font-size: 1.08rem;
+  }
+
+  .draft-stage-bar,
+  .builder-hint,
+  .settlement-note,
+  .session-info-bar {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .session-info-bar {
+    gap: 8px;
+  }
+
+  .draft-stage-bar .toolbar {
+    gap: 8px;
+  }
+
+  .draft-stage-bar .toolbar > button,
+  .draft-stage-bar .toolbar > .timer-chip,
+  .draft-stage-bar .toolbar > .stage-pill {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .timer-chip {
+    padding: 10px 12px;
+    justify-content: center;
+  }
+
+  .player-row,
+  .partner-row,
+  .session-item {
+    padding: 14px;
+  }
+
+  .player-card-details,
+  .partner-detail-list,
+  .merge-card,
+  .stack {
+    gap: 14px;
+  }
+
+  .field-box,
+  .player-name-field input,
+  .buyin-action-field .inline-action,
+  .cashout-action .inline-action {
+    min-height: auto;
+  }
+
+  .overview-grid,
+  .insight-grid,
+  .session-metrics,
+  .session-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-card,
+  .stat-strip,
+  .session-summary-item {
+    padding: 14px;
+  }
+
+  .overview-card strong,
+  .stat-strip strong,
+  .leaderboard-score {
+    font-size: 1.18rem;
+  }
+
+  .rebuy-modal {
+    max-height: calc(100vh - 16px);
+  }
+
+  .rebuy-modal form {
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 520px) {
+  body {
+    background:
+      linear-gradient(180deg, rgba(3, 9, 18, 0.3), rgba(3, 9, 18, 0.82)),
+      url("./assets/modern-casino-bg.svg") top center/cover fixed no-repeat,
+      linear-gradient(180deg, #08101b 0%, #10253b 100%);
+  }
+
+  .page-shell {
+    width: calc(100% - 12px);
+    padding: 10px 0 24px;
+  }
+
+  .hero,
+  .hero-panel,
+  .card,
+  .subcard,
+  .login-stage-action,
+  .draft-stage-bar,
+  .builder-hint,
+  .settlement-note,
+  .session-info-bar {
+    border-radius: 18px;
+  }
+
+  .hero {
+    padding: 16px;
+  }
+
+  .hero-stat-row {
+    justify-content: space-between;
+  }
+
+  .hero-stat-row strong {
+    font-size: 2rem;
+  }
+
+  .eyebrow,
+  .section-kicker {
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+  }
+
+  .login-stage {
+    padding: 18px 14px;
+  }
+
+  .card,
+  .subcard,
+  .finance-stack,
+  .rebuy-modal form {
+    padding: 14px;
+  }
+
+  .toolbar {
+    gap: 8px;
+  }
+
+  .primary-button,
+  .accent-button,
+  .ghost-button,
+  .menu-card {
+    min-height: 46px;
+    padding: 10px 14px;
+  }
+
+  .player-summary-inline {
+    gap: 6px;
+    font-size: 0.88rem;
+  }
+
+  .buyin-chip,
+  .player-tag,
+  .stage-pill {
+    padding: 7px 10px;
+    font-size: 0.84rem;
+  }
+
+  .timer-chip {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .timer-chip strong {
+    font-size: 0.98rem;
+  }
+
+  .history-player-toggle,
+  .player-card-toggle {
+    gap: 8px;
   }
 }
