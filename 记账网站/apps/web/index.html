@@ -337,7 +337,7 @@
                   <h3>玩家画像</h3>
                 </div>
               </div>
-              <div class="grid two">
+              <div class="grid two compact-form-grid">
                 <label>
                   <span>选择玩家</span>
                   <select id="playerInsightSelect"></select>
@@ -350,28 +350,27 @@
                   </div>
                 </label>
               </div>
-              <div class="subcard merge-card">
-                <div class="section-head compact">
-                  <div>
-                    <p class="section-kicker">Player Merge</p>
-                    <h3>玩家信息合并</h3>
+              <details class="collapsible-section merge-card-collapsible">
+                <summary class="collapsible-title">
+                  <span>玩家信息合并</span>
+                </summary>
+                <div class="collapsible-body">
+                  <div class="grid two compact-form-grid">
+                    <label>
+                      <span>被合并玩家</span>
+                      <select id="mergeSourcePlayerSelect"></select>
+                    </label>
+                    <label>
+                      <span>合并到姓名</span>
+                      <input id="mergeTargetPlayerInput" list="playerSuggestions" placeholder="例如：Blue" />
+                    </label>
+                  </div>
+                  <div class="toolbar wrap">
+                    <button id="mergePlayersBtn" class="ghost-button" type="button">合并玩家数据</button>
+                    <span id="mergePlayersStatus" class="session-item-meta"></span>
                   </div>
                 </div>
-                <div class="grid two">
-                  <label>
-                    <span>被合并玩家</span>
-                    <select id="mergeSourcePlayerSelect"></select>
-                  </label>
-                  <label>
-                    <span>合并到姓名</span>
-                    <input id="mergeTargetPlayerInput" list="playerSuggestions" placeholder="例如：Blue" />
-                  </label>
-                </div>
-                <div class="toolbar wrap">
-                  <button id="mergePlayersBtn" class="ghost-button" type="button">合并玩家数据</button>
-                  <span id="mergePlayersStatus" class="session-item-meta"></span>
-                </div>
-              </div>
+              </details>
               <div id="playerInsight" class="player-insight empty-state">暂无玩家数据。</div>
             </section>
           </section>
@@ -471,61 +470,87 @@
       </form>
     </dialog>
 
-    <dialog id="sessionSetupModal" class="rebuy-modal wide-modal">
-      <form id="sessionSetupForm" method="dialog" class="stack">
-        <div class="section-head compact">
+    <dialog id="sessionSetupModal" class="rebuy-modal wide-modal session-setup-modal">
+      <form id="sessionSetupForm" method="dialog" class="stack session-setup-form">
+        <div class="section-head compact session-setup-head">
           <div>
             <p class="section-kicker">Session Setup</p>
             <h3>牌局基本信息登记</h3>
           </div>
+          <button id="closeSessionSetupModalBtn" class="ghost-button modal-close-button" type="button" aria-label="关闭开局弹窗">×</button>
         </div>
-        <label>
-          <span>牌局姓名</span>
-          <input id="setupSessionNameInput" />
-        </label>
-        <label>
-          <span>牌局时间</span>
-          <input id="setupSessionDateInput" type="datetime-local" />
-        </label>
-        <label>
-          <span>牌局地点</span>
-          <input id="setupSessionLocationInput" />
-        </label>
-        <label>
-          <span>是否和别的局合作开局</span>
-          <select id="setupCollaborationInput">
-            <option value="No">No</option>
-            <option value="Yes">Yes</option>
-          </select>
-        </label>
-        <div class="grid two">
+        <div class="session-setup-body stack">
+          <section class="subcard compact-stats-card session-quickstart-card">
+            <div class="section-head compact">
+              <div>
+                <p class="section-kicker">Quick Start</p>
+                <h4>默认设置 / 快速开局</h4>
+              </div>
+            </div>
+            <label class="session-quickstart-toggle">
+              <input id="setupQuickStartInput" type="checkbox" checked />
+              <span>使用默认模式：Modern 单开 / 没有合局 / 荷关不分水</span>
+            </label>
+          </section>
+
+          <div class="grid two compact-form-grid">
+            <label>
+              <span>牌局姓名</span>
+              <input id="setupSessionNameInput" />
+            </label>
+            <label>
+              <span>牌局时间</span>
+              <input id="setupSessionDateInput" type="datetime-local" />
+            </label>
+          </div>
+
+          <div class="grid two compact-form-grid">
+            <label>
+              <span>牌局地点</span>
+              <input id="setupSessionLocationInput" />
+            </label>
+            <label>
+              <span>是否和别的局合作开局</span>
+              <select id="setupCollaborationInput">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="setupCollaborationFields" class="grid two compact-form-grid">
+            <label>
+              <span>合作方名称</span>
+              <input id="setupCollaborationNameInput" placeholder="例如：其他集团" />
+            </label>
+            <label>
+              <span>合作方分红比例（%）</span>
+              <input id="setupCollaborationShareInput" type="number" min="0" max="100" step="0.01" value="0" />
+            </label>
+          </div>
+
+          <div class="grid two compact-form-grid">
+            <label>
+              <span>是否为 Dealer 分股</span>
+              <select id="setupDealerShareEnabledInput">
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </label>
+            <label id="setupDealerShareField">
+              <span>Dealer 分红比例（%）</span>
+              <input id="setupDealerShareInput" type="number" min="0" max="100" step="0.01" value="0" />
+            </label>
+          </div>
+
           <label>
-            <span>合作方名称</span>
-            <input id="setupCollaborationNameInput" placeholder="例如：其他集团" />
-          </label>
-          <label>
-            <span>合作方分红比例（%）</span>
-            <input id="setupCollaborationShareInput" type="number" min="0" max="100" step="0.01" value="0" />
+            <span>荷关姓名</span>
+            <input id="setupDealerNamesInput" placeholder="单荷关填姓名，多荷关可用逗号分隔，也可填无" />
           </label>
         </div>
-        <div class="grid two">
-          <label>
-            <span>是否为 Dealer 分股</span>
-            <select id="setupDealerShareEnabledInput">
-              <option value="No">No</option>
-              <option value="Yes">Yes</option>
-            </select>
-          </label>
-          <label>
-            <span>Dealer 分红比例（%）</span>
-            <input id="setupDealerShareInput" type="number" min="0" max="100" step="0.01" value="0" />
-          </label>
+        <div class="session-setup-footer">
+          <button id="confirmSessionSetupBtn" class="primary-button" type="button">开始本场记账</button>
         </div>
-        <label>
-          <span>荷关姓名</span>
-          <input id="setupDealerNamesInput" placeholder="单荷关填姓名，多荷关可用逗号分隔，也可填无" />
-        </label>
-        <button id="confirmSessionSetupBtn" class="primary-button" type="button">开始本场记账</button>
       </form>
     </dialog>
 

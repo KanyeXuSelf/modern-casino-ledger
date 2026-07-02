@@ -1202,6 +1202,65 @@ button:focus-visible {
   gap: 10px;
 }
 
+.compact-stats-card .overview-grid,
+.compact-stats-card .insight-grid,
+.compact-debt-card .overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stats-page > .overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stats-page > .overview-grid .overview-card {
+  padding: 12px;
+  min-height: 88px;
+}
+
+.stats-page > .overview-grid .overview-card p {
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.stats-page > .overview-grid .overview-card strong {
+  margin-top: 6px;
+  font-size: 1.02rem;
+  line-height: 1.15;
+}
+
+.compact-stats-card .overview-card,
+.compact-stats-card .stat-strip,
+.compact-debt-card .overview-card {
+  padding: 12px;
+  min-height: 88px;
+}
+
+.compact-stats-card .overview-card p,
+.compact-stats-card .stat-strip p,
+.compact-debt-card .overview-card p {
+  font-size: 0.8rem;
+  line-height: 1.2;
+}
+
+.compact-stats-card .overview-card strong,
+.compact-stats-card .stat-strip strong,
+.compact-debt-card .overview-card strong {
+  margin-top: 6px;
+  font-size: 1.02rem;
+  line-height: 1.15;
+}
+
+.compact-stats-card .inline-action {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.merge-card-collapsible {
+  margin-top: 2px;
+}
+
 .compact-chart-card {
   padding: 12px 14px;
   min-height: clamp(180px, 30vh, 240px);
@@ -1267,6 +1326,10 @@ button:focus-visible {
   gap: 16px;
 }
 
+.compact-form-grid {
+  gap: 10px;
+}
+
 .chart-card {
   padding: 16px;
   border-radius: var(--radius-lg);
@@ -1323,6 +1386,63 @@ button:focus-visible {
 
 .rebuy-modal form {
   padding: 24px;
+}
+
+.session-setup-modal {
+  max-height: min(92vh, 860px);
+}
+
+.session-setup-form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: min(92vh, 860px);
+}
+
+.session-setup-head {
+  align-items: flex-start;
+  padding-bottom: 4px;
+}
+
+.session-setup-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.session-setup-footer {
+  position: sticky;
+  bottom: 0;
+  padding-top: 12px;
+  background: linear-gradient(180deg, rgba(8, 19, 32, 0), rgba(8, 19, 32, 0.98) 34%);
+}
+
+.session-setup-footer .primary-button {
+  width: 100%;
+}
+
+.modal-close-button {
+  min-width: 42px;
+  min-height: 42px;
+  padding: 0;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.session-quickstart-card {
+  padding: 12px 14px;
+}
+
+.session-quickstart-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ink-soft);
+}
+
+.session-quickstart-toggle input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
 }
 
 .player-row-settlement .player-card-summary {
@@ -2042,13 +2162,93 @@ button:focus-visible {
     gap: 8px;
   }
 
+  .compact-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .session-setup-form {
+    max-height: min(92vh, 760px);
+  }
+
+  .session-setup-body {
+    gap: 10px;
+  }
+
+  .session-setup-footer {
+    padding-top: 10px;
+  }
+
+  .modal-close-button {
+    min-width: 38px;
+    min-height: 38px;
+    font-size: 1.2rem;
+  }
+
+  .session-quickstart-card {
+    padding: 10px 12px;
+  }
+
+  .session-quickstart-toggle {
+    font-size: 0.84rem;
+    line-height: 1.35;
+  }
+
+  .compact-stats-card .overview-grid,
+  .compact-stats-card .insight-grid,
+  .compact-debt-card .overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stats-page > .overview-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .stats-page > .overview-grid .overview-card {
+    min-height: 78px;
+    padding: 10px;
+  }
+
+  .stats-page > .overview-grid .overview-card p {
+    font-size: 0.74rem;
+  }
+
+  .stats-page > .overview-grid .overview-card strong {
+    font-size: 0.94rem;
+  }
+
+  .compact-stats-card .overview-card,
+  .compact-stats-card .stat-strip,
+  .compact-debt-card .overview-card {
+    min-height: 78px;
+    padding: 10px;
+  }
+
+  .compact-stats-card .overview-card p,
+  .compact-stats-card .stat-strip p,
+  .compact-debt-card .overview-card p {
+    font-size: 0.74rem;
+  }
+
+  .compact-stats-card .overview-card strong,
+  .compact-stats-card .stat-strip strong,
+  .compact-debt-card .overview-card strong {
+    font-size: 0.94rem;
+  }
+
+  .compact-stats-card .inline-action {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
   .compact-chart-card {
-    min-height: 28vh;
+    min-height: 24vh;
     padding: 10px 12px;
   }
 
   .compact-chart-card svg {
-    min-height: 20vh;
+    min-height: 16vh;
   }
 
   .session-item-compact {

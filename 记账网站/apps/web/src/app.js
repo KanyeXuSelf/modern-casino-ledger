@@ -119,10 +119,13 @@ const elements = {
   setupSessionNameInput: document.querySelector("#setupSessionNameInput"),
   setupSessionDateInput: document.querySelector("#setupSessionDateInput"),
   setupSessionLocationInput: document.querySelector("#setupSessionLocationInput"),
+  setupQuickStartInput: document.querySelector("#setupQuickStartInput"),
   setupCollaborationInput: document.querySelector("#setupCollaborationInput"),
+  setupCollaborationFields: document.querySelector("#setupCollaborationFields"),
   setupCollaborationNameInput: document.querySelector("#setupCollaborationNameInput"),
   setupCollaborationShareInput: document.querySelector("#setupCollaborationShareInput"),
   setupDealerShareEnabledInput: document.querySelector("#setupDealerShareEnabledInput"),
+  setupDealerShareField: document.querySelector("#setupDealerShareField"),
   setupDealerShareInput: document.querySelector("#setupDealerShareInput"),
   setupDealerNamesInput: document.querySelector("#setupDealerNamesInput"),
   confirmSessionSetupBtn: document.querySelector("#confirmSessionSetupBtn"),
@@ -138,6 +141,7 @@ const elements = {
   confirmCashoutBtn: document.querySelector("#confirmCashoutBtn"),
   addPlayerForm: document.querySelector("#addPlayerForm"),
   sessionSetupForm: document.querySelector("#sessionSetupForm"),
+  closeSessionSetupModalBtn: document.querySelector("#closeSessionSetupModalBtn"),
   historySessionModal: document.querySelector("#historySessionModal"),
   historySessionModalTitle: document.querySelector("#historySessionModalTitle"),
   historySessionDetail: document.querySelector("#historySessionDetail"),
@@ -254,6 +258,10 @@ function bindEvents() {
     confirmSessionSetup();
   });
   elements.sessionSetupForm.addEventListener("keydown", handleDialogEnter);
+  elements.closeSessionSetupModalBtn?.addEventListener("click", () => elements.sessionSetupModal.close());
+  elements.setupQuickStartInput?.addEventListener("change", updateSessionSetupVisibility);
+  elements.setupCollaborationInput?.addEventListener("change", updateSessionSetupVisibility);
+  elements.setupDealerShareEnabledInput?.addEventListener("change", updateSessionSetupVisibility);
   document.querySelectorAll("[data-view-target]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!canAccessFullLedger()) {
@@ -1228,19 +1236,36 @@ function openSessionSetupModal() {
     return;
   }
   const draft = state.draftSession;
+  const quickStart =
+    (draft.name || "Modern Casino") === "Modern Casino" &&
+    (draft.location || "Fort lee") === "Fort lee" &&
+    (draft.collaboration || "No") === "No" &&
+    (draft.dealerShareEnabled || "No") === "No";
   elements.setupSessionNameInput.value = draft.name || "Modern Casino";
   elements.setupSessionDateInput.value = draft.date || getNewYorkNowLocalInput();
   elements.setupSessionLocationInput.value = draft.location || "Fort lee";
+  elements.setupQuickStartInput.checked = quickStart;
   elements.setupCollaborationInput.value = draft.collaboration || "No";
   elements.setupCollaborationNameInput.value = draft.collaborationName || "";
   elements.setupCollaborationShareInput.value = draft.collaborationSharePercent || 0;
   elements.setupDealerShareEnabledInput.value = draft.dealerShareEnabled || "No";
   elements.setupDealerShareInput.value = draft.dealerSharePercent || 0;
   elements.setupDealerNamesInput.value = draft.dealerNames || "";
+  updateSessionSetupVisibility();
   elements.sessionSetupModal.showModal();
 }
 
 function confirmSessionSetup() {
+  const quickStart = elements.setupQuickStartInput.checked;
+  if (quickStart) {
+    elements.setupSessionNameInput.value = elements.setupSessionNameInput.value.trim() || "Modern Casino";
+    elements.setupSessionLocationInput.value = elements.setupSessionLocationInput.value.trim() || "Fort lee";
+    elements.setupCollaborationInput.value = "No";
+    elements.setupDealerShareEnabledInput.value = "No";
+    elements.setupCollaborationNameInput.value = "";
+    elements.setupCollaborationShareInput.value = "0";
+    elements.setupDealerShareInput.value = "0";
+  }
   state.draftSession.name = elements.setupSessionNameInput.value.trim() || "Modern Casino";
   state.draftSession.date = elements.setupSessionDateInput.value || getNewYorkNowLocalInput();
   state.draftSession.location = elements.setupSessionLocationInput.value.trim() || "Fort lee";
@@ -1257,6 +1282,27 @@ function confirmSessionSetup() {
   saveState();
   elements.sessionSetupModal.close();
   render();
+}
+
+function updateSessionSetupVisibility() {
+  const quickStart = Boolean(elements.setupQuickStartInput?.checked);
+  if (quickStart) {
+    elements.setupCollaborationInput.value = "No";
+    elements.setupDealerShareEnabledInput.value = "No";
+  }
+  const collaborationEnabled = !quickStart && elements.setupCollaborationInput.value === "Yes";
+  const dealerShareEnabled = !quickStart && elements.setupDealerShareEnabledInput.value === "Yes";
+  if (elements.setupCollaborationFields) elements.setupCollaborationFields.hidden = !collaborationEnabled;
+  if (elements.setupDealerShareField) elements.setupDealerShareField.hidden = !dealerShareEnabled;
+  elements.setupCollaborationInput.disabled = quickStart;
+  elements.setupDealerShareEnabledInput.disabled = quickStart;
+  if (!collaborationEnabled) {
+    elements.setupCollaborationNameInput.value = quickStart ? "" : elements.setupCollaborationNameInput.value;
+    elements.setupCollaborationShareInput.value = "0";
+  }
+  if (!dealerShareEnabled) {
+    elements.setupDealerShareInput.value = "0";
+  }
 }
 
 function renderFinancials() {
