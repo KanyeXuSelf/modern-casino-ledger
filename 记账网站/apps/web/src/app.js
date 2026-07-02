@@ -590,11 +590,13 @@ async function connectAuthorizedWorkspace() {
     await syncContext.manager.bootstrap();
     syncContext.initialized = true;
     setSyncStatus("synced", `云端账本已连接，工作区：${config.workspaceId}`);
+    render();
   } catch (error) {
     syncContext.initialized = true;
     syncContext.manager = null;
     console.error("sync bootstrap failed", error);
     setSyncStatus("error", "云端连接失败，当前仍可在本机使用。");
+    render();
   }
 }
 
