@@ -31,7 +31,8 @@ export function createRenderModule(runtime) {
 
     const active = state.ui.activeView || "home";
     const allowed = runtime.auth.canAccessFullLedger();
-    elements.heroHeader.hidden = !allowed;
+    const compactMobile = window.matchMedia("(max-width: 720px)").matches;
+    elements.heroHeader.hidden = !allowed || (compactMobile && active !== "home");
     elements.accessGateView.hidden = allowed;
     elements.shareView.hidden = true;
     elements.homeView.hidden = !allowed || active !== "home";
