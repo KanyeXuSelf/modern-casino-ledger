@@ -802,9 +802,8 @@ function renderPlayerRows() {
     const details = fragment.querySelector(".player-card-details");
     const summaryBuyinInline = fragment.querySelector(".player-summary-inline-buyin");
     const summaryCashoutInline = fragment.querySelector(".player-summary-inline-cashout");
-    const summaryCashoutAction = fragment.querySelector(".player-summary-cashout-action");
-    const summaryCashoutInput = fragment.querySelector(".player-summary-live-cashout");
-    const summaryCashoutBtn = fragment.querySelector(".confirm-summary-cashout");
+    const summaryRebuyBtn = fragment.querySelector(".summary-rebuy-action");
+    const summaryCashoutTrigger = fragment.querySelector(".summary-cashout-trigger");
     const resumeBtn = fragment.querySelector(".resume-player");
     const article = fragment.querySelector(".player-row");
     const playerCashOutTotal = getPlayerCashOutTotal(player);
@@ -827,11 +826,19 @@ function renderPlayerRows() {
     const settlementMode = state.draftSession.stage === "settlement";
     summaryName.textContent = player.name || `玩家 ${index + 1}`;
     summaryTime.textContent = formatDuration(getPlayerPlayMs(player));
-    summaryBuyin.textContent = formatCurrency(getPlayerBuyInTotal(player));
+    const playerBuyinTotal = getPlayerBuyInTotal(player);
+    const playerProfit = getPlayerProfit(player);
+    summaryBuyin.textContent = formatCurrency(playerBuyinTotal);
     summaryCashout.textContent = player.cashOutRecorded ? formatCurrency(playerCashOutTotal) : "无";
-    summaryBuyinInline.textContent = `总 Buyin ${formatCurrency(getPlayerBuyInTotal(player))}`;
+    if (player.cashOutRecorded) {
+      summaryBuyinInline.textContent = formatCurrency(playerProfit);
+      summaryBuyinInline.className = `player-summary-inline-buyin player-summary-inline-profit ${playerProfit >= 0 ? "positive" : "negative"}`;
+    } else {
+      summaryBuyinInline.textContent = `总 Buyin ${formatCurrency(playerBuyinTotal)}`;
+      summaryBuyinInline.className = "player-summary-inline-buyin";
+    }
     summaryCashoutInline.textContent = player.exited || settlementMode
-      ? `盈利 ${formatCurrency(getPlayerProfit(player))} · 游戏时间 ${formatDuration(getPlayerPlayMs(player))} · Cash Out ${
+      ? `盈利 ${formatCurrency(playerProfit)} · 游戏时间 ${formatDuration(getPlayerPlayMs(player))} · Cash Out ${
           player.cashOutRecorded ? formatCurrency(playerCashOutTotal) : "无"
         }`
       : "";
@@ -845,8 +852,8 @@ function renderPlayerRows() {
       section.hidden = !settlementMode;
     });
     details.hidden = !expanded;
-    summaryCashoutAction.hidden = compactMode || settlementMode;
-    summaryCashoutInput.value = "";
+    if (summaryRebuyBtn) summaryRebuyBtn.hidden = compactMode || settlementMode;
+    if (summaryCashoutTrigger) summaryCashoutTrigger.hidden = compactMode || settlementMode;
     resumeBtn.hidden = !(player.exited && !settlementMode);
 
     buyinHistory.innerHTML = player.buyIns.length
@@ -858,8 +865,8 @@ function renderPlayerRows() {
           .join("")
       : `<span class="empty-inline">还没有 buyin / rebuy 记录</span>`;
 
-    profitDisplay.textContent = settlementMode ? formatCurrency(getPlayerProfit(player)) : "--";
-    profitDisplay.className = `player-profit-display ${getPlayerProfit(player) >= 0 ? "positive" : "negative"}`;
+    profitDisplay.textContent = settlementMode ? formatCurrency(playerProfit) : "--";
+    profitDisplay.className = `player-profit-display ${playerProfit >= 0 ? "positive" : "negative"}`;
     preview.innerHTML = getPlayerPreview(player);
 
     cardToggle.addEventListener("click", () => {
@@ -909,12 +916,21 @@ function renderPlayerRows() {
       render();
     });
 
-    summaryCashoutBtn.addEventListener("click", () => {
-      const amount = toNumber(summaryCashoutInput.value);
-      if (amount <= 0) return;
-      recordPlayerCashout(player, amount);
+    summaryRebuyBtn?.addEventListener("click", () => {
+      elements.rebuyPlayerSelect.value = player.id;
+      openRebuyModal();
+    });
+
+    summaryCashoutTrigger?.addEventListener("click", () => {
+      state.ui.expandedPlayerId = player.id;
       saveState();
-      render();
+      renderPlayerRows();
+      requestAnimationFrame(() => {
+        const currentPlayerCards = Array.from(elements.playerRows.querySelectorAll(".player-row"));
+        const currentCard = currentPlayerCards[index];
+        const cashoutField = currentCard?.querySelector(".player-live-cashout");
+        cashoutField?.focus();
+      });
     });
 
     resumeBtn.addEventListener("click", () => {
@@ -1016,13 +1032,21 @@ function renderPartnerRows() {
     costInput.value = partner.cost;
     advanceInput.value = partner.manualAdvance ?? partner.advance;
 
+    const syncPartnerDraft = () => {
+      partner.name = nameInput.value.trim();
+      partner.sharePercent = toNumber(shareInput.value);
+      partner.cost = toNumber(costInput.value);
+      partner.manualAdvance = toNumber(advanceInput.value);
+      partner.advance = partner.manualAdvance;
+    };
+
     [nameInput, shareInput, costInput, advanceInput].forEach((input) => {
       input.addEventListener("input", () => {
-        partner.name = nameInput.value.trim();
-        partner.sharePercent = toNumber(shareInput.value);
-        partner.cost = toNumber(costInput.value);
-        partner.manualAdvance = toNumber(advanceInput.value);
-        partner.advance = partner.manualAdvance;
+        syncPartnerDraft();
+        saveState();
+      });
+      input.addEventListener("change", () => {
+        syncPartnerDraft();
         saveState();
         render();
       });
@@ -1176,7 +1200,8 @@ function renderFinancials() {
             <article class="leaderboard-row">
               <div>
                 <h3>${escapeHtml(partner.name || "未命名合伙人")}</h3>
-                <p>Modern 分股 ${formatPercent(partner.sharePercent)} · Modern 利润 ${formatCurrency(partner.profitShare)} · 玩家盈利 ${formatCurrency(partner.playerProfit)}</p>
+                <p>Modern 分股 ${formatPercent(partner.sharePercent)} · Modern 利润 ${formatCurrency(partner.profitShare)} · 在桌输赢 ${formatCurrency(partner.playerProfit)}</p>
+                <p>收账 / 垫账 ${formatCurrency(partner.advance)}</p>
               </div>
               <div>
                 <p>最终应收 / 应付</p>
@@ -1207,9 +1232,8 @@ function computeDraftSummary() {
   const partnerShareTotal = sum(partners.map((partner) => partner.sharePercent));
   const partnerPayouts = buildPartnerPayoutMap(players, partners.map((partner) => partner.name));
   const partnerResults = partners.map((partner) => {
-    const playerProfit = sum(
-      players.filter((player) => player.partnerName === partner.name).map((player) => getPlayerProfit(player))
-    );
+    const linkedPlayers = getPartnerLinkedPlayers(players, partner.name);
+    const playerProfit = sum(linkedPlayers.map((player) => getPlayerProfit(player)));
     const profitShare = partnerShareTotal > 0 ? modernNetProfit * (partner.sharePercent / partnerShareTotal) : 0;
     const manualAdvance = toNumber(partner.manualAdvance ?? partner.advance);
     const advance = manualAdvance + (partnerPayouts.get(partner.name) || 0);
@@ -1315,6 +1339,16 @@ function isSessionSettled(session) {
   return session.players.every(isPlayerSettlementComplete);
 }
 
+function getPartnerLinkedPlayers(players, partnerName) {
+  const normalizedPartnerName = String(partnerName || "").trim();
+  if (!normalizedPartnerName) return [];
+  return (players || []).filter((player) => {
+    const playerName = String(player.name || "").trim();
+    const settlementPartnerName = String(player.partnerName || "").trim();
+    return playerName === normalizedPartnerName || settlementPartnerName === normalizedPartnerName;
+  });
+}
+
 function buildPartnerPayoutMap(players, partnerNames) {
   const validPartnerNames = new Set((partnerNames || []).filter(Boolean));
   const payoutMap = new Map();
@@ -1344,11 +1378,8 @@ function recomputeSavedSession(session) {
   const partnerShareTotal = sum(partners.map((partner) => toNumber(partner.sharePercent)));
   const partnerPayouts = buildPartnerPayoutMap(players, partners.map((partner) => partner.name));
   const recomputedPartners = partners.map((partner) => {
-    const playerProfit = sum(
-      players
-        .filter((player) => String(player.partnerName || "").trim() === String(partner.name || "").trim())
-        .map((player) => toNumber(player.profit))
-    );
+    const linkedPlayers = getPartnerLinkedPlayers(players, partner.name);
+    const playerProfit = sum(linkedPlayers.map((player) => toNumber(player.profit)));
     const profitShare = partnerShareTotal > 0 ? modernNetProfit * (toNumber(partner.sharePercent) / partnerShareTotal) : 0;
     const manualAdvance = toNumber(partner.manualAdvance ?? partner.advance);
     const advance = manualAdvance + (partnerPayouts.get(partner.name) || 0);
@@ -1386,12 +1417,7 @@ function getSavedSessionMetrics(session) {
 }
 
 function getSavedSessionPartnerDetail(session, partner) {
-  const partnerName = String(partner.name || "").trim();
-  const tableProfit = sum(
-    (session.players || [])
-      .filter((player) => String(player.name || "").trim() === partnerName)
-      .map((player) => toNumber(player.profit))
-  );
+  const tableProfit = sum(getPartnerLinkedPlayers(session.players || [], partner.name).map((player) => toNumber(player.profit)));
   const balanceWithSession = toNumber(partner.profitShare) - toNumber(partner.cost) - toNumber(partner.advance);
   return {
     profitShare: toNumber(partner.profitShare),

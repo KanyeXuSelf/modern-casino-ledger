@@ -117,16 +117,20 @@
               <div id="sessionInfoBar" class="session-info-bar"></div>
             </section>
             <div class="draft-stage-bar">
-              <div>
+              <div class="draft-stage-header">
                 <p class="section-kicker">Workflow</p>
-                <h3>实时记账流程</h3>
+                <div class="workflow-title-row">
+                  <h3>实时记账流程</h3>
+                  <span id="draftStagePill" class="stage-pill live">进行中</span>
+                </div>
               </div>
-              <div class="toolbar wrap">
-                <span id="draftStagePill" class="stage-pill live">进行中</span>
+              <div class="workflow-timer-row">
                 <div class="timer-chip">
                   <span>牌局时间</span>
                   <strong id="sessionTimerDisplay">00:00:00</strong>
                 </div>
+              </div>
+              <div class="toolbar wrap workflow-action-row">
                 <button id="openRebuyModalBtn" class="accent-button" type="button">Rebuy</button>
                 <button id="enterSettlementBtn" class="accent-button" type="button">牌局结束，进入结算</button>
                 <button id="returnLiveBtn" class="ghost-button" type="button" hidden>返回进行中</button>
@@ -159,7 +163,7 @@
               </label>
             </div>
 
-            <div class="player-builder">
+            <div class="player-builder priority-panel">
               <div class="section-head compact">
                 <div>
                   <p class="section-kicker">Players</p>
@@ -183,54 +187,73 @@
 
               <div class="grid two profit-panel-grid">
                 <section class="subcard finance-stack">
-                  <h4>成本部分</h4>
-                  <div class="grid two cost-grid cost-grid-pair">
-                    <label>
-                      <span>河官工资</span>
-                      <input id="dealerFee" type="number" min="0" step="0.01" value="0" />
-                    </label>
-                    <label>
-                      <span>总 Cash Out</span>
-                      <input id="sessionCashoutDisplay" type="number" value="0" disabled />
-                    </label>
-                  </div>
-                  <div class="grid two cost-grid cost-grid-names">
-                    <label>
-                      <span>荷关姓名</span>
-                      <input id="dealerNames" placeholder="例如：Alice，Bob 或 无" />
-                    </label>
-                    <label>
-                      <span>合作方名称</span>
-                      <input id="collaborationName" placeholder="例如：其他集团" />
-                    </label>
-                  </div>
-                  <div class="grid three cost-grid cost-grid-share">
-                    <label>
-                      <span>Dealer 分红（%）</span>
-                      <input id="dealerSharePercent" type="number" min="0" max="100" step="0.01" value="0" />
-                    </label>
-                    <label>
-                      <span>合作方分红（%）</span>
-                      <input id="collaborationSharePercent" type="number" min="0" max="100" step="0.01" value="0" />
-                    </label>
-                    <label>
-                      <span>Modern 集团占比（%）</span>
-                      <input id="modernShareDisplay" type="number" value="100" disabled />
-                    </label>
-                  </div>
-                  <div class="section-head compact">
-                  <div>
-                    <p class="section-kicker">Partners</p>
-                      <h4>合伙人成本 <span id="partnerShareWarning" class="warning-badge" hidden>股份加总有误</span></h4>
+                  <details class="collapsible-section">
+                    <summary class="collapsible-title">
+                      <span>成本部分</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <div class="grid two cost-grid cost-grid-pair">
+                        <label>
+                          <span>河官工资</span>
+                          <input id="dealerFee" type="number" min="0" step="0.01" value="0" />
+                        </label>
+                        <label>
+                          <span>总 Cash Out</span>
+                          <input id="sessionCashoutDisplay" type="number" value="0" disabled />
+                        </label>
+                      </div>
+                      <div class="grid two cost-grid cost-grid-names">
+                        <label>
+                          <span>荷关姓名</span>
+                          <input id="dealerNames" placeholder="例如：Alice，Bob 或 无" />
+                        </label>
+                        <label>
+                          <span>合作方名称</span>
+                          <input id="collaborationName" placeholder="例如：其他集团" />
+                        </label>
+                      </div>
+                      <div class="grid three cost-grid cost-grid-share">
+                        <label>
+                          <span>Dealer 分红（%）</span>
+                          <input id="dealerSharePercent" type="number" min="0" max="100" step="0.01" value="0" />
+                        </label>
+                        <label>
+                          <span>合作方分红（%）</span>
+                          <input id="collaborationSharePercent" type="number" min="0" max="100" step="0.01" value="0" />
+                        </label>
+                        <label>
+                          <span>Modern 集团占比（%）</span>
+                          <input id="modernShareDisplay" type="number" value="100" disabled />
+                        </label>
+                      </div>
                     </div>
-                    <button id="addPartnerBtn" class="ghost-button" type="button">添加合伙人</button>
-                  </div>
-                  <div id="partnerRows" class="partner-rows"></div>
+                  </details>
+                  <details class="collapsible-section">
+                    <summary class="collapsible-title partner-collapse-title">
+                      <span>合伙人成本</span>
+                      <span id="partnerShareWarning" class="warning-badge" hidden>股份加总有误</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <div class="section-head compact partner-collapsible-head">
+                        <div>
+                          <p class="section-kicker">Partners</p>
+                        </div>
+                        <button id="addPartnerBtn" class="ghost-button" type="button">添加合伙人</button>
+                      </div>
+                      <div id="partnerRows" class="partner-rows"></div>
+                    </div>
+                  </details>
                 </section>
 
                 <section class="subcard finance-stack">
-                  <h4>净利润与分水</h4>
-                  <div id="profitSummaryCards" class="overview-grid"></div>
+                  <details class="collapsible-section">
+                    <summary class="collapsible-title">
+                      <span>净利润与分水</span>
+                    </summary>
+                    <div class="collapsible-body">
+                      <div id="profitSummaryCards" class="overview-grid"></div>
+                    </div>
+                  </details>
                 </section>
               </div>
 
@@ -486,10 +509,8 @@
             </span>
           </button>
           <div class="toolbar">
-            <div class="inline-action player-summary-cashout-action">
-              <input class="player-summary-live-cashout" type="number" min="0" step="0.01" value="0" />
-              <button class="ghost-button confirm-summary-cashout" type="button">记 Cashout</button>
-            </div>
+            <button class="ghost-button summary-rebuy-action" type="button">Rebuy</button>
+            <button class="ghost-button summary-cashout-trigger" type="button">Cashout</button>
             <button class="ghost-button resume-player" type="button" hidden>重新落座</button>
             <button class="remove-player ghost-button" type="button">移除</button>
           </div>
