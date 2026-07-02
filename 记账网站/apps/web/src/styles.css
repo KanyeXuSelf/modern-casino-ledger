@@ -1282,9 +1282,9 @@ button:focus-visible {
 }
 
 .session-item-compact {
-  gap: 8px;
-  padding: 12px 14px;
-  border-radius: 18px;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 16px;
 }
 
 .session-item-top-compact {
@@ -1292,7 +1292,7 @@ button:focus-visible {
 }
 
 .compact-row-actions {
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 
@@ -1303,6 +1303,46 @@ button:focus-visible {
 .compact-summary-row {
   margin: 0;
   line-height: 1.45;
+}
+
+.dense-history-row {
+  align-items: center;
+  gap: 8px;
+}
+
+.dense-history-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.dense-history-main strong {
+  font-size: 0.94rem;
+  line-height: 1.15;
+}
+
+.dense-history-main .session-item-meta {
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.dense-history-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.dense-action-button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 0.72rem;
 }
 
 .session-item-top,
@@ -2252,45 +2292,40 @@ button:focus-visible {
   }
 
   .session-item-compact {
-    padding: 10px 12px;
-    gap: 6px;
+    padding: 7px 8px;
+    gap: 4px;
   }
 
   .session-item-top-compact {
     flex-direction: row;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .session-item-top-compact h3 {
-    font-size: 0.96rem;
-    line-height: 1.2;
-  }
-
-  .session-item-compact .session-item-meta {
-    font-size: 0.74rem;
-    line-height: 1.4;
-  }
-
-  .compact-row-actions {
-    flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
   }
 
+  .dense-history-main strong {
+    font-size: 0.84rem;
+    line-height: 1.1;
+  }
+
+  .dense-history-main .session-item-meta {
+    font-size: 0.66rem;
+    line-height: 1.15;
+  }
+
+  .compact-row-actions {
+    gap: 4px;
+  }
+
   .compact-row-actions .settlement-badge {
-    min-height: 26px;
-    padding: 0 9px;
-    font-size: 0.76rem;
+    min-height: 22px;
+    padding: 0 7px;
+    font-size: 0.66rem;
   }
 
-  .compact-history-buttons {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: 100%;
-  }
-
-  .compact-history-buttons .compact-action-button {
-    width: 100%;
+  .dense-action-button {
+    min-height: 24px;
+    padding: 3px 6px;
+    font-size: 0.64rem;
   }
 
   .leaderboard-pagination {

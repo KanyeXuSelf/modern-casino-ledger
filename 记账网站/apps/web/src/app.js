@@ -392,13 +392,7 @@ function bindEvents() {
     saveState();
     renderLeaderboard();
   });
-  document.querySelectorAll("[data-stats-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.ui.statsTab = button.dataset.statsTab;
-      saveState();
-      renderStats();
-    });
-  });
+  elements.statsView?.addEventListener("click", handleStatsTabClick);
   elements.historySettlementFilter?.addEventListener("change", renderHistory);
   elements.sessionList.addEventListener("click", handleHistoryActions);
   elements.historySessionDetail.addEventListener("click", handleHistorySessionActions);
@@ -1791,18 +1785,17 @@ function renderHistory() {
     const draft = buildDraftSessionSnapshot();
     cards.push(`
       <article class="session-item session-item-compact session-item-live">
-        <div class="session-item-top session-item-top-compact">
-          <div>
-            <h3>${escapeHtml(draft.name)}</h3>
-            <p class="session-item-meta">实时账单 · ${escapeHtml(draft.date)} · ${escapeHtml(draft.location)}</p>
-          </div>
-          <div class="toolbar wrap compact-row-actions">
+        <div class="session-item-top session-item-top-compact dense-history-row">
+          <button class="dense-history-main" type="button" data-history-action="open-draft">
+            <strong>${escapeHtml(draft.name)}</strong>
+            <span class="session-item-meta">实时账单 · ${escapeHtml(formatSetupDate(draft.date))} · ${escapeHtml(draft.location)}</span>
+          </button>
+          <div class="toolbar wrap compact-row-actions dense-history-actions">
             <span class="settlement-badge settlement-badge-unsettled">${escapeHtml(draft.stageLabel)}</span>
             <strong class="${draft.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(draft.netProfit)}</strong>
-            <button class="ghost-button compact-action-button" type="button" data-history-action="open-draft">${draft.openLabel}</button>
+            <button class="ghost-button compact-action-button dense-action-button" type="button" data-history-action="open-draft">${draft.openLabel}</button>
           </div>
         </div>
-        <p class="session-item-meta compact-summary-row">总 Buyin ${formatCurrency(draft.totalBuyIn)} · Cash Out ${formatCurrency(draft.totalCashOut)} · 成本 ${formatCurrency(draft.totalCosts)}</p>
       </article>
     `);
   }
@@ -1818,21 +1811,17 @@ function renderHistory() {
     if (filter === "unsettled" && settled) return;
     const card = `
       <article class="session-item session-item-compact">
-        <div class="session-item-top session-item-top-compact">
-          <div>
-            <h3>${escapeHtml(session.name)}</h3>
-            <p class="session-item-meta">${escapeHtml(session.date)} · ${escapeHtml(session.location || "未填写地点")}</p>
-          </div>
-          <div class="toolbar wrap compact-row-actions">
+        <div class="session-item-top session-item-top-compact dense-history-row">
+          <button class="dense-history-main" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">
+            <strong>${escapeHtml(session.name)}</strong>
+            <span class="session-item-meta">${escapeHtml(formatSetupDate(session.date))} · ${escapeHtml(session.location || "未填写地点")}</span>
+          </button>
+          <div class="toolbar wrap compact-row-actions dense-history-actions">
             <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
             <strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
+            <button class="ghost-button compact-action-button dense-action-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结</button>
+            <button class="ghost-button danger-button compact-action-button dense-action-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删</button>
           </div>
-        </div>
-        <p class="session-item-meta compact-summary-row">Buyin ${formatCurrency(session.totalBuyIn)} · Cash Out ${formatCurrency(session.totalCashOut)} · ${toNumber(session.durationHours).toFixed(1)} 小时</p>
-        <div class="toolbar wrap compact-row-actions compact-history-buttons">
-          <button class="ghost-button compact-action-button" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">详情</button>
-          <button class="ghost-button compact-action-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账</button>
-          <button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删</button>
         </div>
       </article>
     `;
@@ -1844,12 +1833,7 @@ function renderHistory() {
   });
 
   if (filter === "all") {
-    if (unsettledSessions.length) {
-      cards.push(`<section class="history-group"><div class="section-head compact"><div><h3>未结清账单</h3></div></div>${unsettledSessions.join("")}</section>`);
-    }
-    if (settledSessions.length) {
-      cards.push(`<section class="history-group"><div class="section-head compact"><div><h3>已结清账单</h3></div></div>${settledSessions.join("")}</section>`);
-    }
+    cards.push(...unsettledSessions, ...settledSessions);
   } else {
     cards.push(...(filter === "settled" ? settledSessions : unsettledSessions));
   }
@@ -1962,15 +1946,36 @@ function renderStats() {
   const activeTab = state.ui.statsTab || "overview";
   document.querySelectorAll("[data-stats-tab]").forEach((button) => {
     button.classList.toggle("active", button.dataset.statsTab === activeTab);
+    button.setAttribute("aria-pressed", button.dataset.statsTab === activeTab ? "true" : "false");
   });
-  if (elements.statsOverviewPage) elements.statsOverviewPage.hidden = activeTab !== "overview";
-  if (elements.statsPlayersPage) elements.statsPlayersPage.hidden = activeTab !== "players";
-  if (elements.statsLeaderboardPage) elements.statsLeaderboardPage.hidden = activeTab !== "leaderboard";
+  if (elements.statsOverviewPage) {
+    elements.statsOverviewPage.hidden = activeTab !== "overview";
+    elements.statsOverviewPage.style.display = activeTab === "overview" ? "" : "none";
+  }
+  if (elements.statsPlayersPage) {
+    elements.statsPlayersPage.hidden = activeTab !== "players";
+    elements.statsPlayersPage.style.display = activeTab === "players" ? "" : "none";
+  }
+  if (elements.statsLeaderboardPage) {
+    elements.statsLeaderboardPage.hidden = activeTab !== "leaderboard";
+    elements.statsLeaderboardPage.style.display = activeTab === "leaderboard" ? "" : "none";
+  }
   renderOverview();
   renderDebtSummary();
   renderPlayerOptions();
   renderPlayerInsight();
   renderLeaderboard();
+}
+
+function handleStatsTabClick(event) {
+  const button = event.target.closest("[data-stats-tab]");
+  if (!button) return;
+  event.preventDefault();
+  const nextTab = button.dataset.statsTab || "overview";
+  if (state.ui.statsTab === nextTab) return;
+  state.ui.statsTab = nextTab;
+  saveState();
+  renderStats();
 }
 
 function renderOverview() {
