@@ -192,6 +192,13 @@ async function init() {
 }
 
 function bindEvents() {
+  bindDialogBackdropClose([
+    elements.rebuyModal,
+    elements.addPlayerModal,
+    elements.sessionSetupModal,
+    elements.historySessionModal,
+    elements.gateLoginDialog,
+  ]);
   elements.openGateLoginDialogBtn?.addEventListener("click", () => elements.gateLoginDialog?.showModal());
   elements.closeGateLoginDialogBtn?.addEventListener("click", () => elements.gateLoginDialog?.close());
   elements.gateLoginBtn?.addEventListener("click", loginWithPassword);
@@ -335,6 +342,16 @@ function switchView(view) {
   state.ui.activeView = view;
   saveState();
   renderViews();
+}
+
+function bindDialogBackdropClose(dialogs) {
+  dialogs.filter(Boolean).forEach((dialog) => {
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) {
+        dialog.close();
+      }
+    });
+  });
 }
 
 function handleDialogEnter(event) {
