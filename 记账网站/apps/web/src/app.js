@@ -1,3 +1,7 @@
+import { createAuthModule } from "./modules/auth.js";
+import { createSyncModule } from "./modules/sync.js";
+import { createRenderModule } from "./modules/render.js";
+
 const STORAGE_KEY = "poker-ledger-v3";
 const CLIENT_ID_KEY = "poker-ledger-client-id";
 const DEFAULT_SYNC_TEXT = "当前仅保存在本机浏览器。";
@@ -129,10 +133,49 @@ const elements = {
   partnerShareWarning: document.querySelector("#partnerShareWarning"),
 };
 
-let timerInterval = null;
 let activeHistorySessionId = "";
 let activeHistorySessionMode = "settlement";
 let activeHistorySettlementPlayerKey = "";
+
+const runtime = {
+  STORAGE_KEY,
+  CLIENT_ID_KEY,
+  DEFAULT_SYNC_TEXT,
+  config,
+  shareToken,
+  state,
+  authContext,
+  syncContext,
+  elements,
+  ensureDraftSession,
+  touchState,
+  cloneState,
+  normalizeRootState,
+  normalizeMeta,
+  normalizeSession,
+  renderHistorySessionDetail,
+  isSessionSettled,
+  escapeHtml,
+  formatCurrency,
+  formatSetupDate,
+  formatPercent,
+  calculateModernSharePercent,
+  getSessionDurationMs,
+  formatDuration,
+  renderPlayerRows,
+  renderPartnerRows,
+  renderFinancials,
+  renderHistory,
+  renderStats,
+};
+
+const authModule = createAuthModule(runtime);
+const syncModule = createSyncModule(runtime);
+const renderModule = createRenderModule(runtime);
+
+runtime.auth = authModule;
+runtime.sync = syncModule;
+runtime.render = renderModule;
 
 init();
 
@@ -530,345 +573,71 @@ function touchState() {
 }
 
 function canAccessFullLedger() {
-  if (config.syncProvider !== "supabase") return true;
-  return Boolean(authContext.member);
+  return authModule.canAccessFullLedger();
 }
 
 function focusAuth() {
-  if (elements.gateLoginDialog && !elements.gateLoginDialog.open) {
-    elements.gateLoginDialog.showModal();
-  }
-  elements.gateUsernameInput?.focus();
-  setAuthStatus("locked", "完整账本权限只开放给已登记的成员邮箱。");
+  return authModule.focusAuth();
 }
 
 function queueRemoteSync() {
-  if (!syncContext.initialized || !syncContext.manager || !canAccessFullLedger()) return;
-  if (syncContext.pendingTimer) {
-    clearTimeout(syncContext.pendingTimer);
-  }
-  setSyncStatus("syncing", "正在把最新账单同步到云端。");
-  syncContext.pendingTimer = window.setTimeout(() => {
-    syncContext.pendingTimer = null;
-    pushRemoteState(cloneState(state));
-  }, 450);
+  return syncModule.queueRemoteSync();
 }
 
 async function initializeSync() {
-  if (config.syncProvider !== "supabase") {
-    syncContext.initialized = true;
-    authContext.initialized = true;
-    renderSyncStatus();
-    return;
-  }
-
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !config.workspaceId) {
-    syncContext.initialized = true;
-    setSyncStatus("error", "缺少云端配置，当前已退回本地模式。");
-    return;
-  }
-
-  if (!window.supabase?.createClient) {
-    syncContext.initialized = true;
-    authContext.initialized = true;
-    setSyncStatus("error", "Supabase SDK 未加载，当前已退回本地模式。");
-    return;
-  }
-
-  authContext.client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true },
-  });
-
-  await initializeAuth();
-
-  if (!canAccessFullLedger()) {
-    syncContext.initialized = true;
-    setSyncStatus("locked", "已连接 Supabase，等待成员登录后加载完整账本。");
-    render();
-    return;
-  }
-
-  await connectAuthorizedWorkspace();
+  return syncModule.initializeSync();
 }
 
 async function connectAuthorizedWorkspace() {
-  setSyncStatus("connecting", "正在连接共享账本数据库。");
-
-  try {
-    await teardownSyncManager();
-    syncContext.manager = createSupabaseManager();
-    await syncContext.manager.bootstrap();
-    syncContext.initialized = true;
-    setSyncStatus("synced", `云端账本已连接，工作区：${config.workspaceId}`);
-    render();
-  } catch (error) {
-    syncContext.initialized = true;
-    await teardownSyncManager();
-    console.error("sync bootstrap failed", error);
-    setSyncStatus("error", "云端连接失败，当前仍可在本机使用。");
-    render();
-  }
+  return syncModule.connectAuthorizedWorkspace();
 }
 
 async function teardownSyncManager() {
-  if (syncContext.pendingTimer) {
-    clearTimeout(syncContext.pendingTimer);
-    syncContext.pendingTimer = null;
-  }
-  syncContext.pushing = false;
-  syncContext.queuedSnapshot = null;
-  syncContext.manager = null;
-  if (syncContext.channel && authContext.client) {
-    await authContext.client.removeChannel(syncContext.channel);
-  }
-  syncContext.channel = null;
+  return syncModule.teardownSyncManager();
 }
 
 function createSupabaseManager() {
-  const client = authContext.client;
-
-  return {
-    async bootstrap() {
-      const { data, error } = await client
-        .from(config.supabaseTable)
-        .select("workspace_id,state,updated_at,updated_by")
-        .eq("workspace_id", config.workspaceId)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (data?.state) {
-        applyRemoteState(data.state);
-      } else {
-        touchState();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-        await pushRemoteState(cloneState(state));
-      }
-
-      syncContext.channel = client
-        .channel(`poker-ledger:${config.workspaceId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "*",
-            schema: "public",
-            table: config.supabaseTable,
-            filter: `workspace_id=eq.${config.workspaceId}`,
-          },
-          (payload) => {
-            const remoteState = payload.new?.state;
-            const remoteEditor = remoteState?.meta?.updatedBy || payload.new?.updated_by || "";
-            if (!remoteState || remoteEditor === syncContext.clientId) return;
-            applyRemoteState(remoteState);
-          }
-        )
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            setSyncStatus("synced", `云端账本已连接，工作区：${config.workspaceId}`);
-          }
-        });
-    },
-    async push(snapshot) {
-      const payload = {
-        workspace_id: config.workspaceId,
-        state: snapshot,
-        updated_at: snapshot.meta.updatedAt || new Date().toISOString(),
-        updated_by: snapshot.meta.updatedBy || syncContext.clientId,
-      };
-      const { error } = await client.from(config.supabaseTable).upsert(payload, { onConflict: "workspace_id" });
-      if (error) throw error;
-    },
-  };
+  return syncModule.createSupabaseManager();
 }
 
 async function initializeAuth() {
-  if (!authContext.client) return;
-  const {
-    data: { session },
-  } = await authContext.client.auth.getSession();
-  authContext.user = session?.user || null;
-  authContext.member = authContext.user ? await fetchMembership(authContext.user) : null;
-  authContext.initialized = true;
-  renderAuthState();
-
-  authContext.client.auth.onAuthStateChange(async (_event, sessionValue) => {
-    authContext.user = sessionValue?.user || null;
-    authContext.member = authContext.user ? await fetchMembership(authContext.user) : null;
-    renderAuthState();
-    if (canAccessFullLedger() && !syncContext.manager) {
-      await connectAuthorizedWorkspace();
-    } else {
-      if (!canAccessFullLedger()) {
-        await teardownSyncManager();
-        setSyncStatus("locked", "已连接 Supabase，等待成员登录后加载完整账本。");
-      }
-      render();
-    }
-  });
+  return authModule.initializeAuth();
 }
 
 async function fetchMembership(user) {
-  if (!user?.email || !authContext.client) return null;
-  const { data, error } = await authContext.client
-    .from(config.workspaceMembersTable)
-    .select("workspace_id,email,username,role,display_name")
-    .eq("workspace_id", config.workspaceId)
-    .eq("email", user.email)
-    .maybeSingle();
-  if (error) {
-    console.error("membership lookup failed", error);
-    return null;
-  }
-  return data || null;
+  return authModule.fetchMembership(user);
 }
 
 async function resolveLoginEmail(identifier) {
-  if (!identifier || !authContext.client) return "";
-  if (identifier.includes("@")) return identifier;
-  const { data, error } = await authContext.client.rpc("get_login_email", {
-    p_workspace_id: config.workspaceId,
-    p_username: identifier,
-  });
-  if (error) {
-    console.error("resolve login email failed", error);
-    return "";
-  }
-  const resolved = Array.isArray(data) ? data[0] : data;
-  return resolved?.email || "";
+  return authModule.resolveLoginEmail(identifier);
 }
 
 async function loginWithPassword() {
-  const identifier = elements.gateUsernameInput?.value.trim();
-  const password = elements.gatePasswordInput?.value || "";
-  if (!identifier || !password || !authContext.client) return;
-  elements.gateLoginBtn.disabled = true;
-  try {
-    setAuthStatus("connecting", "正在验证用户名和密码。");
-    const email = await resolveLoginEmail(identifier);
-    if (!email) {
-      setAuthStatus("error", "找不到这个用户名，请检查拼写或联系管理员。");
-      return;
-    }
-    const { error } = await authContext.client.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) throw error;
-    elements.gatePasswordInput.value = "";
-    setAuthStatus("synced", "登录成功，正在加载完整账本。");
-  } catch (error) {
-    console.error("password login failed", error);
-    setAuthStatus("error", "用户名或密码错误，或者该账号尚未开通密码登录。");
-  } finally {
-    elements.gateLoginBtn.disabled = false;
-  }
+  return authModule.loginWithPassword();
 }
 
 async function signOutMember() {
-  if (!authContext.client) return;
-  await authContext.client.auth.signOut();
-  authContext.user = null;
-  authContext.member = null;
-  await teardownSyncManager();
-  setSyncStatus("locked", "已退出登录，完整账本功能已锁定。");
-  renderAuthState();
-  render();
+  return authModule.signOutMember();
 }
 
 async function initializeShareView() {
-  if (!window.supabase?.createClient || !config.supabaseUrl || !config.supabaseAnonKey) {
-    elements.shareView.hidden = false;
-    elements.shareSessionDetail.innerHTML = `<div class="empty-state">分享视图初始化失败，缺少 Supabase 配置。</div>`;
-    renderViews();
-    return;
-  }
-  const client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data, error } = await client.rpc("get_shared_session", { p_share_token: shareToken });
-
-  elements.shareView.hidden = false;
-  const shared = Array.isArray(data) ? data[0] : data;
-  if (error || !shared?.share_snapshot) {
-    console.error("load shared session failed", error);
-    elements.shareSessionDetail.innerHTML = `<div class="empty-state">这个分享链接无效、已过期，或尚未生成分享快照。</div>`;
-    renderViews();
-    return;
-  }
-
-  const session = normalizeSession(shared.share_snapshot);
-  elements.shareSessionDetail.innerHTML = `
-    <section class="subcard history-detail-summary">
-      <div class="section-head compact">
-        <div>
-          <h3>${escapeHtml(shared.session_name || session.name || "牌局账单")}</h3>
-          <p class="session-item-meta">${escapeHtml(session.date)} · ${escapeHtml(session.location || "未填写地点")} · 仅限本场分享</p>
-        </div>
-      </div>
-      <div class="session-summary-grid">
-        <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(session.totalBuyIn)}</strong></div>
-        <div class="session-summary-item"><span>总 Cash Out</span><strong>${formatCurrency(session.totalCashOut)}</strong></div>
-        <div class="session-summary-item"><span>总成本</span><strong>${formatCurrency(session.totalCosts)}</strong></div>
-        <div class="session-summary-item"><span>盈利</span><strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong></div>
-      </div>
-      <p class="session-item-meta">链接有效期：${shared.expires_at ? formatSyncTime(shared.expires_at) : "长期有效"}</p>
-    </section>
-    ${renderHistorySessionDetail(session, isSessionSettled(session))}
-  `;
-  renderViews();
+  return syncModule.initializeShareView();
 }
 
 async function pushRemoteState(snapshot) {
-  if (!syncContext.manager) return;
-  if (syncContext.pushing) {
-    syncContext.queuedSnapshot = snapshot;
-    return;
-  }
-
-  syncContext.pushing = true;
-
-  try {
-    await syncContext.manager.push(snapshot);
-    setSyncStatus("synced", `最近同步：${formatSyncTime(snapshot.meta.updatedAt)}`);
-  } catch (error) {
-    console.error("push remote state failed", error);
-    setSyncStatus("error", "云端保存失败，稍后修改会继续尝试同步。");
-  } finally {
-    syncContext.pushing = false;
-    if (syncContext.queuedSnapshot) {
-      const nextSnapshot = syncContext.queuedSnapshot;
-      syncContext.queuedSnapshot = null;
-      pushRemoteState(nextSnapshot);
-    }
-  }
+  return syncModule.pushRemoteState(snapshot);
 }
 
 function applyRemoteState(remoteState) {
-  const incoming = normalizeRootState(remoteState);
-  if (!isIncomingStateNewer(incoming, state)) return;
-  replaceState(incoming);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  setSyncStatus("synced", `已接收合伙人的最新修改：${formatSyncTime(state.meta.updatedAt)}`);
-  render();
+  return syncModule.applyRemoteState(remoteState);
 }
 
 function replaceState(nextState) {
-  Object.keys(state).forEach((key) => delete state[key]);
-  Object.assign(state, cloneState(nextState));
-  ensureDraftSession();
+  return syncModule.replaceState(nextState);
 }
 
 function isIncomingStateNewer(incoming, current) {
-  const incomingStamp = getStateTimestamp(incoming);
-  const currentStamp = getStateTimestamp(current);
-  if (incomingStamp !== currentStamp) return incomingStamp > currentStamp;
-  return normalizeMeta(incoming.meta).revision > normalizeMeta(current.meta).revision;
-}
-
-function getStateTimestamp(candidate) {
-  const value = candidate?.meta?.updatedAt;
-  const timestamp = value ? new Date(value).getTime() : 0;
-  return Number.isFinite(timestamp) ? timestamp : 0;
+  return syncModule.isIncomingStateNewer(incoming, current);
 }
 
 function cloneState(value) {
@@ -876,90 +645,27 @@ function cloneState(value) {
 }
 
 function setSyncStatus(status, text) {
-  syncContext.status = status;
-  syncContext.statusText = text;
-  renderSyncStatus();
+  return syncModule.setSyncStatus(status, text);
 }
 
 function renderSyncStatus() {
-  if (!elements.syncStatusBadge || !elements.syncStatusText) return;
-  elements.syncStatusBadge.textContent = getSyncStatusLabel(syncContext.status);
-  elements.syncStatusBadge.className = `sync-status ${syncContext.status}`;
-  elements.syncStatusText.textContent = syncContext.statusText;
+  return syncModule.renderSyncStatus();
 }
 
 function renderAuthState() {
-  if (!elements.authStatusBadge || !elements.authStatusText) return;
-  if (authContext.member) {
-    if (elements.gateLoginDialog?.open) elements.gateLoginDialog.close();
-    setAuthStatus("synced", `已登录：${authContext.member.display_name || authContext.member.username || authContext.member.email}`);
-    elements.currentUserEmail.textContent = authContext.user?.email || "";
-    elements.signOutBtn.hidden = false;
-    if (elements.gateUsernameInput) {
-      elements.gateUsernameInput.value = authContext.member.username || "";
-      elements.gateUsernameInput.disabled = true;
-    }
-    if (elements.gatePasswordInput) {
-      elements.gatePasswordInput.value = "";
-      elements.gatePasswordInput.disabled = true;
-    }
-    if (elements.gateLoginBtn) elements.gateLoginBtn.hidden = true;
-  } else if (authContext.user) {
-    setAuthStatus("error", "该邮箱已登录，但不在完整账本成员名单内。");
-    elements.currentUserEmail.textContent = authContext.user.email || "";
-    elements.signOutBtn.hidden = false;
-    if (elements.gateUsernameInput) elements.gateUsernameInput.disabled = true;
-    if (elements.gatePasswordInput) elements.gatePasswordInput.disabled = true;
-    if (elements.gateLoginBtn) elements.gateLoginBtn.hidden = true;
-  } else {
-    setAuthStatus("local", "未登录。请输入用户名和密码。");
-    elements.currentUserEmail.textContent = "";
-    elements.signOutBtn.hidden = true;
-    if (elements.gateUsernameInput) elements.gateUsernameInput.disabled = false;
-    if (elements.gatePasswordInput) elements.gatePasswordInput.disabled = false;
-    if (elements.gateLoginBtn) elements.gateLoginBtn.hidden = false;
-  }
-  if (elements.gateAuthStatusText) {
-    elements.gateAuthStatusText.textContent = elements.authStatusText.textContent;
-  }
+  return authModule.renderAuthState();
 }
 
 function setAuthStatus(status, text) {
-  elements.authStatusBadge.textContent =
-    {
-      local: "未登录",
-      connecting: "验证中",
-      synced: "成员已验证",
-      error: "无权限",
-      locked: "受限访问",
-    }[status] || "未登录";
-  elements.authStatusBadge.className = `sync-status ${status}`;
-  elements.authStatusText.textContent = text;
+  return authModule.setAuthStatus(status, text);
 }
 
 function getSyncStatusLabel(status) {
-  return {
-    local: "本地模式",
-    connecting: "连接中",
-    synced: "云端已连",
-    syncing: "同步中",
-    locked: "待登录",
-    error: "同步异常",
-  }[status] || "本地模式";
+  return syncModule.getSyncStatusLabel(status);
 }
 
 function formatSyncTime(value) {
-  if (!value) return "刚刚";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "刚刚";
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(date);
+  return syncModule.formatSyncTime(value);
 }
 
 function normalizeConfig(raw) {
@@ -984,88 +690,23 @@ function getOrCreateClientId() {
 }
 
 function render() {
-  renderViews();
-  syncDraftFields();
-  syncTimer();
-  renderHeroStats();
-  renderSyncStatus();
-  renderPlayerRows();
-  renderPartnerRows();
-  renderFinancials();
-  renderHistory();
-  renderStats();
+  return renderModule.render();
 }
 
 function renderViews() {
-  if (shareToken) {
-    elements.accessGateView.hidden = true;
-    elements.heroHeader.hidden = true;
-    elements.homeView.hidden = true;
-    elements.accountingView.hidden = true;
-    elements.historyView.hidden = true;
-    elements.statsView.hidden = true;
-    elements.shareView.hidden = false;
-    return;
-  }
-
-  const active = state.ui.activeView || "home";
-  const allowed = canAccessFullLedger();
-  elements.heroHeader.hidden = !allowed;
-  elements.accessGateView.hidden = allowed;
-  elements.shareView.hidden = true;
-  elements.homeView.hidden = !allowed || active !== "home";
-  elements.accountingView.hidden = !allowed || active !== "accounting";
-  elements.historyView.hidden = !allowed || active !== "history";
-  elements.statsView.hidden = !allowed || active !== "stats";
+  return renderModule.renderViews();
 }
 
 function syncDraftFields() {
-  const draft = state.draftSession;
-  elements.sessionName.value = draft.name;
-  elements.sessionDate.value = String(draft.date).slice(0, 10);
-  elements.sessionLocation.value = draft.location;
-  elements.dealerNames.value = draft.dealerNames;
-  elements.dealerSharePercent.value = draft.dealerSharePercent;
-  elements.collaborationName.value = draft.collaborationName;
-  elements.collaborationSharePercent.value = draft.collaborationSharePercent;
-  elements.modernShareDisplay.value = calculateModernSharePercent(draft).toFixed(2);
-  elements.sessionDuration.value = draft.durationHours;
-  elements.sessionNotes.value = draft.notes;
-  elements.dealerFee.value = draft.dealerFee;
-  elements.draftStagePill.textContent = draft.stage === "settlement" ? "结算中" : "进行中";
-  elements.draftStagePill.className = `stage-pill ${draft.stage === "settlement" ? "settlement" : "live"}`;
-  elements.enterSettlementBtn.hidden = draft.stage === "settlement";
-  elements.returnLiveBtn.hidden = draft.stage !== "settlement";
-  elements.sessionMetaPrimary.hidden = true;
-  elements.sessionMetaSecondary.hidden = true;
-  elements.sessionInfoBar.innerHTML = `
-    <span>牌局：<strong>${escapeHtml(draft.name)}</strong></span>
-    <span>时间：<strong>${escapeHtml(formatSetupDate(draft.date))}</strong></span>
-    <span>地点：<strong>${escapeHtml(draft.location)}</strong></span>
-    <span>合作开局：<strong>${escapeHtml(draft.collaboration)}</strong></span>
-    <span>荷关：<strong>${escapeHtml(draft.dealerNames || "未填写")}</strong></span>
-    <span>Dealer 分红：<strong>${escapeHtml(formatPercent(draft.dealerSharePercent))}</strong></span>
-    <span>合作方分红：<strong>${escapeHtml(formatPercent(draft.collaborationSharePercent))}</strong></span>
-  `;
+  return renderModule.syncDraftFields();
 }
 
 function syncTimer() {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-  updateTimerDisplay();
-  if (state.draftSession.startedAt && !state.draftSession.endedAt && state.draftSession.stage === "live") {
-    timerInterval = setInterval(updateTimerDisplay, 1000);
-  }
+  return renderModule.syncTimer();
 }
 
 function updateTimerDisplay() {
-  const durationMs = getSessionDurationMs();
-  const durationHours = durationMs / 3600000;
-  elements.sessionTimerDisplay.textContent = formatDuration(durationMs);
-  elements.sessionDuration.value = formatDuration(durationMs);
-  state.draftSession.durationHours = Number(durationHours.toFixed(2));
+  return renderModule.updateTimerDisplay();
 }
 
 function renderPlayerRows() {
