@@ -35,6 +35,9 @@ const elements = {
   currentUserEmail: document.querySelector("#currentUserEmail"),
   signOutBtn: document.querySelector("#signOutBtn"),
   accessGateView: document.querySelector("#accessGateView"),
+  openGateLoginDialogBtn: document.querySelector("#openGateLoginDialogBtn"),
+  gateLoginDialog: document.querySelector("#gateLoginDialog"),
+  closeGateLoginDialogBtn: document.querySelector("#closeGateLoginDialogBtn"),
   gateUsernameInput: document.querySelector("#gateUsernameInput"),
   gatePasswordInput: document.querySelector("#gatePasswordInput"),
   gateLoginBtn: document.querySelector("#gateLoginBtn"),
@@ -145,6 +148,8 @@ async function init() {
 }
 
 function bindEvents() {
+  elements.openGateLoginDialogBtn?.addEventListener("click", () => elements.gateLoginDialog?.showModal());
+  elements.closeGateLoginDialogBtn?.addEventListener("click", () => elements.gateLoginDialog?.close());
   elements.gateLoginBtn?.addEventListener("click", loginWithPassword);
   [elements.gateUsernameInput, elements.gatePasswordInput].forEach((input) => {
     input?.addEventListener("keydown", (event) => {
@@ -530,6 +535,9 @@ function canAccessFullLedger() {
 }
 
 function focusAuth() {
+  if (elements.gateLoginDialog && !elements.gateLoginDialog.open) {
+    elements.gateLoginDialog.showModal();
+  }
   elements.gateUsernameInput?.focus();
   setAuthStatus("locked", "完整账本权限只开放给已登记的成员邮箱。");
 }
@@ -883,6 +891,7 @@ function renderSyncStatus() {
 function renderAuthState() {
   if (!elements.authStatusBadge || !elements.authStatusText) return;
   if (authContext.member) {
+    if (elements.gateLoginDialog?.open) elements.gateLoginDialog.close();
     setAuthStatus("synced", `已登录：${authContext.member.display_name || authContext.member.username || authContext.member.email}`);
     elements.currentUserEmail.textContent = authContext.user?.email || "";
     elements.signOutBtn.hidden = false;
@@ -962,7 +971,7 @@ function normalizeConfig(raw) {
     shareTable: String(raw?.shareTable || "session_shares").trim(),
     workspaceMembersTable: String(raw?.workspaceMembersTable || "workspace_members").trim(),
     workspaceId: String(raw?.workspaceId || "modern-casino").trim(),
-    siteTitle: String(raw?.siteTitle || "开局账本").trim(),
+    siteTitle: String(raw?.siteTitle || "Modern 扑克账本").trim(),
   };
 }
 

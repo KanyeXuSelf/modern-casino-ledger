@@ -3,18 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>开局账本</title>
+    <title>Modern 扑克账本</title>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>
     <div class="page-shell">
       <header id="heroHeader" class="hero">
-        <div>
-          <p class="eyebrow">Poker Ledger</p>
-          <h1>开局账本</h1>
-          <p class="hero-copy">
-            围绕实时记账、往期账单和数据统计构建的扑克记账网站。牌局过程中实时记录 buyin 与 rebuy，结束后统一完成 cashout、结账和合伙人收益分配。
-          </p>
+        <div class="hero-brand">
+          <div class="hero-title-block">
+            <p class="eyebrow">Modern Poker Ledger</p>
+            <h1>Modern 扑克账本</h1>
+            <p class="hero-copy">
+              围绕实时记账、往期账单和数据统计构建的扑克记账网站。牌局过程中实时记录 buyin 与 rebuy，结束后统一完成 cashout、结账和合伙人收益分配。
+            </p>
+          </div>
         </div>
         <div class="hero-panel">
           <p class="hero-stat-label">数据库状态</p>
@@ -53,29 +55,24 @@
         </section>
 
         <section id="accessGateView" class="card login-card" hidden>
-          <div class="section-head">
-            <div>
-              <p class="section-kicker">Sign In</p>
-              <h2>请输入用户名和密码</h2>
+          <div class="login-stage">
+            <div class="login-stage-copy">
+              <p class="section-kicker">Modern Casino</p>
+              <h2>进入完整账本</h2>
+              <p class="hero-copy">
+                这是 Modern Casino 的成员账本入口。历史账单、统计和英雄榜在验证身份后解锁；分享账单链接仍可单独访问。
+              </p>
+              <div class="login-stage-tags">
+                <span>Texas Hold'em</span>
+                <span>Modern Casino</span>
+                <span>Ledger Access</span>
+              </div>
+            </div>
+            <div class="login-stage-action">
+              <button id="openGateLoginDialogBtn" class="primary-button login-floating-button" type="button">打开登录面板</button>
+              <p id="gateAuthStatusText" class="session-item-meta">登录后会自动跳转主界面。</p>
             </div>
           </div>
-          <p class="hero-copy">
-            完整账本、历史账单和英雄榜仅对指定成员开放。单场账单分享链接不需要登录。
-          </p>
-          <div class="grid two">
-            <label>
-              <span>用户名</span>
-              <input id="gateUsernameInput" type="text" placeholder="例如：Kanye" />
-            </label>
-            <label>
-              <span>密码</span>
-              <input id="gatePasswordInput" type="password" placeholder="输入密码" />
-            </label>
-          </div>
-          <div class="toolbar wrap">
-            <button id="gateLoginBtn" class="primary-button" type="button">登录完整账本</button>
-          </div>
-          <p id="gateAuthStatusText" class="session-item-meta">登录后会自动解锁完整账本。</p>
         </section>
 
         <section id="homeView" class="card home-card">
@@ -640,6 +637,27 @@
           <span id="shareLinkStatus" class="session-item-meta"></span>
         </div>
         <div id="historySessionDetail" class="stack"></div>
+      </form>
+    </dialog>
+
+    <dialog id="gateLoginDialog" class="rebuy-modal gate-login-dialog">
+      <form method="dialog" class="stack">
+        <div class="section-head compact">
+          <div>
+            <p class="section-kicker">Sign In</p>
+            <h3>Modern Casino 登录</h3>
+          </div>
+          <button id="closeGateLoginDialogBtn" class="ghost-button" type="submit">关闭</button>
+        </div>
+        <label>
+          <span>用户名</span>
+          <input id="gateUsernameInput" type="text" placeholder="例如：Kanye" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="gatePasswordInput" type="password" placeholder="输入密码" />
+        </label>
+        <button id="gateLoginBtn" class="primary-button" type="button">登录完整账本</button>
       </form>
     </dialog>
 

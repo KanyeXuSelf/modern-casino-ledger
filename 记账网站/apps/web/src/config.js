@@ -6,5 +6,5 @@ window.POKER_LEDGER_CONFIG = {
   shareTable: "session_shares",
   workspaceMembersTable: "workspace_members",
   workspaceId: "modern-casino",
-  siteTitle: "开局账本",
+  siteTitle: "Modern 扑克账本",
 };
