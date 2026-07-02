@@ -66,6 +66,7 @@ const elements = {
   confirmAddPlayerBtn: document.querySelector("#confirmAddPlayerBtn"),
   addPartnerBtn: document.querySelector("#addPartnerBtn"),
   resetSessionBtn: document.querySelector("#resetSessionBtn"),
+  toggleSessionInfoBtn: document.querySelector("#toggleSessionInfoBtn"),
   enterSettlementBtn: document.querySelector("#enterSettlementBtn"),
   returnLiveBtn: document.querySelector("#returnLiveBtn"),
   draftStagePill: document.querySelector("#draftStagePill"),
@@ -120,6 +121,7 @@ const elements = {
   setupDealerNamesInput: document.querySelector("#setupDealerNamesInput"),
   confirmSessionSetupBtn: document.querySelector("#confirmSessionSetupBtn"),
   sessionInfoBar: document.querySelector("#sessionInfoBar"),
+  sessionInfoPanel: document.querySelector("#sessionInfoPanel"),
   sessionMetaPrimary: document.querySelector("#sessionMetaPrimary"),
   sessionMetaSecondary: document.querySelector("#sessionMetaSecondary"),
   rebuyForm: document.querySelector("#rebuyForm"),
@@ -183,6 +185,7 @@ init();
 async function init() {
   ensureDraftSession();
   bindEvents();
+  setSessionInfoCollapsed(window.matchMedia("(max-width: 720px)").matches);
   render();
   if (shareToken) {
     await initializeShareView();
@@ -244,6 +247,9 @@ function bindEvents() {
   document.querySelector("#goHomeFromAccountingBtn").addEventListener("click", () => switchView("home"));
   document.querySelector("#goHomeFromHistoryBtn").addEventListener("click", () => switchView("home"));
   document.querySelector("#goHomeFromStatsBtn").addEventListener("click", () => switchView("home"));
+  elements.toggleSessionInfoBtn?.addEventListener("click", () => {
+    setSessionInfoCollapsed(!isSessionInfoCollapsed());
+  });
 
   elements.addPlayerBtn.addEventListener("click", openAddPlayerModal);
   elements.confirmAddPlayerBtn.addEventListener("click", confirmAddPlayer);
@@ -332,6 +338,20 @@ function bindEvents() {
     saveState();
     renderStats();
   });
+}
+
+function isSessionInfoCollapsed() {
+  return elements.sessionInfoPanel?.hidden !== false;
+}
+
+function setSessionInfoCollapsed(collapsed) {
+  if (elements.sessionInfoPanel) {
+    elements.sessionInfoPanel.hidden = collapsed;
+  }
+  if (elements.toggleSessionInfoBtn) {
+    elements.toggleSessionInfoBtn.setAttribute("aria-expanded", String(!collapsed));
+    elements.toggleSessionInfoBtn.textContent = collapsed ? "基础信息" : "收起信息";
+  }
 }
 
 function switchView(view) {
@@ -716,6 +736,9 @@ function getOrCreateClientId() {
 }
 
 function render() {
+  if (state.ui.activeView !== "accounting" && window.matchMedia("(max-width: 720px)").matches) {
+    setSessionInfoCollapsed(true);
+  }
   return renderModule.render();
 }
 

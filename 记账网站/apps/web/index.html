@@ -100,19 +100,22 @@
         </section>
 
         <section id="accountingView" class="card app-view" hidden>
-          <div class="section-head">
+          <div class="section-head accounting-head">
             <div>
               <p class="section-kicker">Live Ledger</p>
               <h2>记账界面</h2>
             </div>
-            <div class="toolbar wrap">
+            <div class="toolbar wrap accounting-toolbar">
+              <button id="toggleSessionInfoBtn" class="ghost-button compact-action-button" type="button" aria-expanded="false">基础信息</button>
               <button id="goHomeFromAccountingBtn" class="ghost-button" type="button">返回主界面</button>
               <button id="resetSessionBtn" class="ghost-button" type="button">清空当前牌局</button>
             </div>
           </div>
 
           <form id="sessionForm" class="stack">
-            <div id="sessionInfoBar" class="session-info-bar"></div>
+            <section id="sessionInfoPanel" class="session-info-panel" hidden>
+              <div id="sessionInfoBar" class="session-info-bar"></div>
+            </section>
             <div class="draft-stage-bar">
               <div>
                 <p class="section-kicker">Workflow</p>
