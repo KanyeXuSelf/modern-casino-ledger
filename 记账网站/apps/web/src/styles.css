@@ -1461,6 +1461,11 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 
+  .finance-stack .overview-grid,
+  .session-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .overview-card,
   .stat-strip,
   .session-summary-item {
@@ -1471,6 +1476,11 @@ button:focus-visible {
   .stat-strip strong,
   .leaderboard-score {
     font-size: 1.18rem;
+  }
+
+  .finance-stack .overview-grid .overview-card,
+  .session-metrics .overview-card {
+    min-height: 108px;
   }
 
   .rebuy-modal {
@@ -1642,6 +1652,30 @@ button:focus-visible {
 
   .finance-stack .cost-grid-share {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .finance-stack .overview-grid,
+  .session-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .finance-stack .overview-grid .overview-card,
+  .session-metrics .overview-card {
+    min-height: 96px;
+    padding: 12px;
+  }
+
+  .finance-stack .overview-grid .overview-card p,
+  .session-metrics .overview-card p {
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+
+  .finance-stack .overview-grid .overview-card strong,
+  .session-metrics .overview-card strong {
+    font-size: 1.02rem;
+    line-height: 1.2;
   }
 
   .player-row .player-card-summary .toolbar {
