@@ -1164,6 +1164,88 @@ button:focus-visible {
   background: rgba(10, 30, 40, 0.86);
 }
 
+.stats-tabbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stats-tab-button {
+  min-height: 42px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.stats-tab-button.active {
+  color: #f5fbff;
+  border-color: rgba(99, 224, 211, 0.32);
+  background:
+    linear-gradient(180deg, rgba(28, 59, 92, 0.92), rgba(16, 37, 58, 0.9)),
+    radial-gradient(circle at top, rgba(99, 224, 211, 0.18), transparent 56%);
+  box-shadow: inset 0 0 0 1px rgba(99, 224, 211, 0.16), 0 14px 26px rgba(3, 10, 19, 0.18);
+}
+
+.stats-page {
+  display: grid;
+  gap: 14px;
+}
+
+.compact-stats-card,
+.compact-debt-card {
+  padding: 14px;
+}
+
+.compact-stats-card .grid.two,
+.compact-debt-card .grid.two {
+  gap: 10px;
+}
+
+.compact-chart-card {
+  padding: 12px 14px;
+  min-height: clamp(180px, 30vh, 240px);
+}
+
+.compact-chart-card h3 {
+  margin-bottom: 8px;
+}
+
+.leaderboard-pagination {
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+
+.leaderboard-pagination .session-item-meta {
+  min-width: 86px;
+  text-align: center;
+}
+
+.session-item-compact {
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 18px;
+}
+
+.session-item-top-compact {
+  align-items: flex-start;
+}
+
+.compact-row-actions {
+  gap: 8px;
+  align-items: center;
+}
+
+.compact-history-buttons {
+  justify-content: flex-start;
+}
+
+.compact-summary-row {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .session-item-top,
 .leaderboard-row {
   display: flex;
@@ -1930,6 +2012,97 @@ button:focus-visible {
   .session-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .stats-tabbar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .stats-tab-button {
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 0.74rem;
+    letter-spacing: 0.01em;
+  }
+
+  .stats-page {
+    gap: 10px;
+  }
+
+  .compact-stats-card,
+  .compact-debt-card {
+    padding: 12px;
+  }
+
+  .compact-stats-card .grid.two,
+  .compact-debt-card .grid.two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .compact-chart-card {
+    min-height: 28vh;
+    padding: 10px 12px;
+  }
+
+  .compact-chart-card svg {
+    min-height: 20vh;
+  }
+
+  .session-item-compact {
+    padding: 10px 12px;
+    gap: 6px;
+  }
+
+  .session-item-top-compact {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .session-item-top-compact h3 {
+    font-size: 0.96rem;
+    line-height: 1.2;
+  }
+
+  .session-item-compact .session-item-meta {
+    font-size: 0.74rem;
+    line-height: 1.4;
+  }
+
+  .compact-row-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .compact-row-actions .settlement-badge {
+    min-height: 26px;
+    padding: 0 9px;
+    font-size: 0.76rem;
+  }
+
+  .compact-history-buttons {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .compact-history-buttons .compact-action-button {
+    width: 100%;
+  }
+
+  .leaderboard-pagination {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+
+  .leaderboard-pagination .session-item-meta {
+    min-width: 0;
+    align-self: center;
   }
 
   .finance-stack .overview-grid .overview-card,

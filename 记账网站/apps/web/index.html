@@ -304,26 +304,33 @@
             <button id="goHomeFromStatsBtn" class="ghost-button" type="button">返回主界面</button>
           </div>
 
-          <div class="section-head compact">
-            <div>
-              <p class="section-kicker">Overview</p>
-              <h3>累计概览</h3>
-            </div>
+          <div class="toolbar wrap stats-tabbar">
+            <button class="ghost-button stats-tab-button" type="button" data-stats-tab="overview">Overview</button>
+            <button class="ghost-button stats-tab-button" type="button" data-stats-tab="players">玩家画像</button>
+            <button class="ghost-button stats-tab-button" type="button" data-stats-tab="leaderboard">英雄榜</button>
           </div>
-          <div id="overviewGrid" class="overview-grid"></div>
 
-          <section class="subcard debt-card">
+          <section id="statsOverviewPage" class="stats-page">
             <div class="section-head compact">
               <div>
-                <p class="section-kicker">Debt Tracker</p>
-                <h3>欠 Modern 集团</h3>
+                <p class="section-kicker">Overview</p>
+                <h3>累计概览</h3>
               </div>
             </div>
-            <div id="debtSummary" class="player-insight empty-state">暂无欠款记录。</div>
+            <div id="overviewGrid" class="overview-grid"></div>
+            <section class="subcard debt-card compact-debt-card">
+              <div class="section-head compact">
+                <div>
+                  <p class="section-kicker">Debt Tracker</p>
+                  <h3>欠 Modern 集团</h3>
+                </div>
+              </div>
+              <div id="debtSummary" class="player-insight empty-state">暂无欠款记录。</div>
+            </section>
           </section>
 
-          <div class="stats-layout">
-            <section class="subcard">
+          <section id="statsPlayersPage" class="stats-page" hidden>
+            <section class="subcard compact-stats-card">
               <div class="section-head compact">
                 <div>
                   <p class="section-kicker">Player View</p>
@@ -367,8 +374,10 @@
               </div>
               <div id="playerInsight" class="player-insight empty-state">暂无玩家数据。</div>
             </section>
+          </section>
 
-            <section class="subcard">
+          <section id="statsLeaderboardPage" class="stats-page" hidden>
+            <section class="subcard compact-stats-card">
               <div class="section-head compact">
                 <div>
                   <p class="section-kicker">Hall of Fame</p>
@@ -391,8 +400,13 @@
                 </label>
               </div>
               <div id="leaderboard" class="leaderboard"></div>
+              <div class="toolbar wrap leaderboard-pagination">
+                <button id="leaderboardPrevBtn" class="ghost-button compact-action-button" type="button">上一页</button>
+                <span id="leaderboardPageIndicator" class="session-item-meta">第 1 页</span>
+                <button id="leaderboardNextBtn" class="ghost-button compact-action-button" type="button">下一页</button>
+              </div>
             </section>
-          </div>
+          </section>
         </section>
       </main>
     </div>
@@ -437,6 +451,23 @@
           <input id="addPlayerBuyinInput" type="number" min="0" step="0.01" placeholder="输入原始 buyin" />
         </label>
         <button id="confirmAddPlayerBtn" class="primary-button" type="button">确认加入</button>
+      </form>
+    </dialog>
+
+    <dialog id="cashoutModal" class="rebuy-modal">
+      <form id="cashoutForm" method="dialog" class="stack">
+        <div class="section-head compact">
+          <div>
+            <p class="section-kicker">Cashout</p>
+            <h3>记录 Cashout</h3>
+          </div>
+          <button id="closeCashoutModalBtn" class="ghost-button" type="submit">关闭</button>
+        </div>
+        <label>
+          <span>Cashout 金额</span>
+          <input id="cashoutAmountInput" type="number" step="0.01" placeholder="输入 Cashout 金额" />
+        </label>
+        <button id="confirmCashoutBtn" class="primary-button" type="button">确认 Cashout</button>
       </form>
     </dialog>
 

@@ -108,6 +108,12 @@ const elements = {
   leaderboardMetric: document.querySelector("#leaderboardMetric"),
   leaderboardFilter: document.querySelector("#leaderboardFilter"),
   leaderboard: document.querySelector("#leaderboard"),
+  leaderboardPrevBtn: document.querySelector("#leaderboardPrevBtn"),
+  leaderboardNextBtn: document.querySelector("#leaderboardNextBtn"),
+  leaderboardPageIndicator: document.querySelector("#leaderboardPageIndicator"),
+  statsOverviewPage: document.querySelector("#statsOverviewPage"),
+  statsPlayersPage: document.querySelector("#statsPlayersPage"),
+  statsLeaderboardPage: document.querySelector("#statsLeaderboardPage"),
   startAccountingBtn: document.querySelector("#startAccountingBtn"),
   sessionSetupModal: document.querySelector("#sessionSetupModal"),
   setupSessionNameInput: document.querySelector("#setupSessionNameInput"),
@@ -125,6 +131,11 @@ const elements = {
   sessionMetaPrimary: document.querySelector("#sessionMetaPrimary"),
   sessionMetaSecondary: document.querySelector("#sessionMetaSecondary"),
   rebuyForm: document.querySelector("#rebuyForm"),
+  cashoutModal: document.querySelector("#cashoutModal"),
+  cashoutForm: document.querySelector("#cashoutForm"),
+  closeCashoutModalBtn: document.querySelector("#closeCashoutModalBtn"),
+  cashoutAmountInput: document.querySelector("#cashoutAmountInput"),
+  confirmCashoutBtn: document.querySelector("#confirmCashoutBtn"),
   addPlayerForm: document.querySelector("#addPlayerForm"),
   sessionSetupForm: document.querySelector("#sessionSetupForm"),
   historySessionModal: document.querySelector("#historySessionModal"),
@@ -138,6 +149,7 @@ const elements = {
 let activeHistorySessionId = "";
 let activeHistorySessionMode = "settlement";
 let activeHistorySettlementPlayerKey = "";
+let activeCashoutPlayerId = "";
 
 const runtime = {
   STORAGE_KEY,
@@ -206,6 +218,7 @@ async function init() {
 function bindEvents() {
   bindDialogBackdropClose([
     elements.rebuyModal,
+    elements.cashoutModal,
     elements.addPlayerModal,
     elements.sessionSetupModal,
     elements.historySessionModal,
@@ -282,6 +295,20 @@ function bindEvents() {
   elements.openRebuyModalBtn.addEventListener("click", openRebuyModal);
   elements.confirmRebuyBtn.addEventListener("click", confirmRebuy);
   elements.closeRebuyModalBtn.addEventListener("click", () => elements.rebuyModal.close());
+  elements.confirmCashoutBtn.addEventListener("click", confirmCashout);
+  elements.closeCashoutModalBtn.addEventListener("click", () => {
+    activeCashoutPlayerId = "";
+    elements.cashoutModal.close();
+  });
+  elements.cashoutModal.addEventListener("close", () => {
+    activeCashoutPlayerId = "";
+    elements.cashoutAmountInput.value = "";
+  });
+  elements.cashoutForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    confirmCashout();
+  });
+  elements.cashoutForm.addEventListener("keydown", handleDialogEnter);
 
   elements.enterSettlementBtn.addEventListener("click", () => {
     if (!getNamedDraftPlayers().length || sum(getNamedDraftPlayers().map(getPlayerBuyInTotal)) <= 0) {
@@ -337,8 +364,33 @@ function bindEvents() {
   });
 
   elements.playerInsightSelect.addEventListener("change", renderPlayerInsight);
-  elements.leaderboardMetric.addEventListener("change", renderLeaderboard);
-  elements.leaderboardFilter.addEventListener("input", renderLeaderboard);
+  elements.leaderboardMetric.addEventListener("change", () => {
+    state.ui.leaderboardPage = 1;
+    saveState();
+    renderLeaderboard();
+  });
+  elements.leaderboardFilter.addEventListener("input", () => {
+    state.ui.leaderboardPage = 1;
+    saveState();
+    renderLeaderboard();
+  });
+  elements.leaderboardPrevBtn?.addEventListener("click", () => {
+    state.ui.leaderboardPage = Math.max((state.ui.leaderboardPage || 1) - 1, 1);
+    saveState();
+    renderLeaderboard();
+  });
+  elements.leaderboardNextBtn?.addEventListener("click", () => {
+    state.ui.leaderboardPage = (state.ui.leaderboardPage || 1) + 1;
+    saveState();
+    renderLeaderboard();
+  });
+  document.querySelectorAll("[data-stats-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.ui.statsTab = button.dataset.statsTab;
+      saveState();
+      renderStats();
+    });
+  });
   elements.historySettlementFilter?.addEventListener("change", renderHistory);
   elements.sessionList.addEventListener("click", handleHistoryActions);
   elements.historySessionDetail.addEventListener("click", handleHistorySessionActions);
@@ -623,7 +675,13 @@ function createEmptyState() {
 
 function normalizeRootState(raw) {
   return {
-    ui: raw?.ui || { activeView: "home", expandedPlayerId: "", expandedHistorySettlementPlayerKey: "" },
+    ui: {
+      activeView: raw?.ui?.activeView || "home",
+      expandedPlayerId: raw?.ui?.expandedPlayerId || "",
+      expandedHistorySettlementPlayerKey: raw?.ui?.expandedHistorySettlementPlayerKey || "",
+      statsTab: raw?.ui?.statsTab || "overview",
+      leaderboardPage: Math.max(Number(raw?.ui?.leaderboardPage) || 1, 1),
+    },
     draftSession: raw?.draftSession || createDefaultDraftSession(),
     sessions: Array.isArray(raw?.sessions) ? raw.sessions : [],
     players: Array.isArray(raw?.players) ? raw.players : [],
@@ -949,15 +1007,10 @@ function renderPlayerRows() {
     });
 
     summaryCashoutTrigger?.addEventListener("click", () => {
-      state.ui.expandedPlayerId = player.id;
-      saveState();
-      renderPlayerRows();
-      requestAnimationFrame(() => {
-        const currentPlayerCards = Array.from(elements.playerRows.querySelectorAll(".player-row"));
-        const currentCard = currentPlayerCards[index];
-        const cashoutField = currentCard?.querySelector(".player-live-cashout");
-        cashoutField?.focus();
-      });
+      activeCashoutPlayerId = player.id;
+      elements.cashoutAmountInput.value = String(player.cashOutRecorded ? playerCashOutTotal : "");
+      elements.cashoutModal.showModal();
+      requestAnimationFrame(() => elements.cashoutAmountInput.focus());
     });
 
     resumeBtn.addEventListener("click", () => {
@@ -1130,6 +1183,19 @@ function confirmRebuy() {
   player.buyIns.push(amount);
   saveState();
   elements.rebuyModal.close();
+  render();
+}
+
+function confirmCashout() {
+  const player = state.draftSession.players.find((item) => item.id === activeCashoutPlayerId);
+  const rawAmount = String(elements.cashoutAmountInput.value ?? "").trim();
+  if (!player || rawAmount === "") return;
+  const amount = toNumber(rawAmount);
+  if (amount < 0) return;
+  recordPlayerCashout(player, amount);
+  activeCashoutPlayerId = "";
+  saveState();
+  elements.cashoutModal.close();
   render();
 }
 
@@ -1678,22 +1744,19 @@ function renderHistory() {
   if (hasDraftActivity()) {
     const draft = buildDraftSessionSnapshot();
     cards.push(`
-      <article class="session-item session-item-live">
-        <div class="session-item-top">
+      <article class="session-item session-item-compact session-item-live">
+        <div class="session-item-top session-item-top-compact">
           <div>
             <h3>${escapeHtml(draft.name)}</h3>
-            <p class="session-item-meta">实时账单 · ${escapeHtml(draft.stageLabel)} · ${escapeHtml(draft.date)} · ${escapeHtml(draft.location)}</p>
+            <p class="session-item-meta">实时账单 · ${escapeHtml(draft.date)} · ${escapeHtml(draft.location)}</p>
           </div>
-          <button class="ghost-button" type="button" data-history-action="open-draft">${draft.openLabel}</button>
+          <div class="toolbar wrap compact-row-actions">
+            <span class="settlement-badge settlement-badge-unsettled">${escapeHtml(draft.stageLabel)}</span>
+            <strong class="${draft.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(draft.netProfit)}</strong>
+            <button class="ghost-button compact-action-button" type="button" data-history-action="open-draft">${draft.openLabel}</button>
+          </div>
         </div>
-        <div class="player-tag-list">
-          ${draft.players
-            .map((player) => `<span class="player-tag">${escapeHtml(player.name)} Buyin ${formatCurrency(player.totalBuyIn)}</span>`)
-            .join("")}
-        </div>
-        <p class="session-item-meta">
-          总 Buyin ${formatCurrency(draft.totalBuyIn)} · 总 Cash Out ${formatCurrency(draft.totalCashOut)} · 所有成本 ${formatCurrency(draft.totalCosts)}
-        </p>
+        <p class="session-item-meta compact-summary-row">总 Buyin ${formatCurrency(draft.totalBuyIn)} · Cash Out ${formatCurrency(draft.totalCashOut)} · 成本 ${formatCurrency(draft.totalCosts)}</p>
       </article>
     `);
   }
@@ -1708,27 +1771,22 @@ function renderHistory() {
     if (filter === "settled" && !settled) return;
     if (filter === "unsettled" && settled) return;
     const card = `
-      <article class="session-item">
-        <div class="session-item-top">
+      <article class="session-item session-item-compact">
+        <div class="session-item-top session-item-top-compact">
           <div>
             <h3>${escapeHtml(session.name)}</h3>
-            <p class="session-item-meta">${escapeHtml(session.date)} · ${escapeHtml(session.location || "未填写地点")} · ${toNumber(session.durationHours).toFixed(2)} 小时</p>
+            <p class="session-item-meta">${escapeHtml(session.date)} · ${escapeHtml(session.location || "未填写地点")}</p>
           </div>
-          <div class="toolbar wrap end">
+          <div class="toolbar wrap compact-row-actions">
             <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
             <strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
           </div>
         </div>
-        <div class="session-summary-grid">
-          <div class="session-summary-item"><span>总 Cash In</span><strong>${formatCurrency(session.totalBuyIn)}</strong></div>
-          <div class="session-summary-item"><span>总 Cash Out</span><strong>${formatCurrency(session.totalCashOut)}</strong></div>
-          <div class="session-summary-item"><span>总成本</span><strong>${formatCurrency(session.totalCosts)}</strong></div>
-          <div class="session-summary-item"><span>盈利</span><strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong></div>
-        </div>
-        <div class="toolbar wrap">
-          <button class="ghost-button" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">详情</button>
-          <button class="ghost-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账记录</button>
-          <button class="ghost-button danger-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>
+        <p class="session-item-meta compact-summary-row">Buyin ${formatCurrency(session.totalBuyIn)} · Cash Out ${formatCurrency(session.totalCashOut)} · ${toNumber(session.durationHours).toFixed(1)} 小时</p>
+        <div class="toolbar wrap compact-row-actions compact-history-buttons">
+          <button class="ghost-button compact-action-button" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">详情</button>
+          <button class="ghost-button compact-action-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账</button>
+          <button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删</button>
         </div>
       </article>
     `;
@@ -1855,6 +1913,13 @@ function deleteSession(sessionId) {
 }
 
 function renderStats() {
+  const activeTab = state.ui.statsTab || "overview";
+  document.querySelectorAll("[data-stats-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.statsTab === activeTab);
+  });
+  if (elements.statsOverviewPage) elements.statsOverviewPage.hidden = activeTab !== "overview";
+  if (elements.statsPlayersPage) elements.statsPlayersPage.hidden = activeTab !== "players";
+  if (elements.statsLeaderboardPage) elements.statsLeaderboardPage.hidden = activeTab !== "leaderboard";
   renderOverview();
   renderDebtSummary();
   renderPlayerOptions();
@@ -2230,7 +2295,7 @@ function renderPlayerInsight() {
       ${metricCard("累计 Cash Out", formatCurrency(stats.totalCashOut))}
       ${metricCard("ROI", `${stats.roi.toFixed(1)}%`, stats.roi >= 0)}
     </div>
-    <div class="chart-card">
+    <div class="chart-card compact-chart-card">
       <h3>${escapeHtml(stats.name)} 盈利曲线</h3>
       ${renderProfitChart(stats.profitCurve)}
     </div>
@@ -2276,14 +2341,24 @@ function renderLeaderboard() {
     .map((player) => ({ id: player.id, name: player.name, ...getPlayerStats(player.id) }))
     .filter((player) => !filters.length || filters.includes(player.name))
     .sort((a, b) => (b[metric] || 0) - (a[metric] || 0));
+  const pageSize = 10;
+  const totalPages = Math.max(Math.ceil(stats.length / pageSize), 1);
+  state.ui.leaderboardPage = Math.min(Math.max(state.ui.leaderboardPage || 1, 1), totalPages);
+  const pageStart = (state.ui.leaderboardPage - 1) * pageSize;
+  const pageItems = stats.slice(pageStart, pageStart + pageSize);
+  if (elements.leaderboardPageIndicator) {
+    elements.leaderboardPageIndicator.textContent = `第 ${state.ui.leaderboardPage} / ${totalPages} 页`;
+  }
+  if (elements.leaderboardPrevBtn) elements.leaderboardPrevBtn.disabled = state.ui.leaderboardPage <= 1;
+  if (elements.leaderboardNextBtn) elements.leaderboardNextBtn.disabled = state.ui.leaderboardPage >= totalPages;
 
-  elements.leaderboard.innerHTML = stats.length
-    ? stats
+  elements.leaderboard.innerHTML = pageItems.length
+    ? pageItems
         .map(
           (player, index) => `
             <article class="leaderboard-row">
               <div class="toolbar">
-                <span class="leaderboard-rank">${index + 1}</span>
+                <span class="leaderboard-rank">${pageStart + index + 1}</span>
                 <div>
                   <h3>${escapeHtml(player.name)}</h3>
                   <p>${player.sessionCount} 场 · ROI ${player.roi.toFixed(1)}%</p>
