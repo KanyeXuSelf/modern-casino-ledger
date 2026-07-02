@@ -66,10 +66,21 @@
           <p class="hero-copy">
             指定合伙人登录后可查看全部历史账单、统计和英雄榜。外部合作伙伴仅建议使用单场账单分享链接。
           </p>
+          <div class="grid two">
+            <label>
+              <span>成员邮箱</span>
+              <input id="gateAuthEmailInput" type="email" placeholder="输入成员邮箱获取登录链接" />
+            </label>
+            <label>
+              <span>登录动作</span>
+              <button id="gateSendMagicLinkBtn" class="primary-button" type="button">发送登录链接</button>
+            </label>
+          </div>
+          <p id="gateAuthStatusText" class="session-item-meta">登录后会自动解锁完整账本。</p>
           <div class="menu-grid">
             <button id="focusLoginBtn" class="menu-button primary-button" type="button">
-              <span>去登录</span>
-              <small>使用上方邮箱输入框获取 magic link</small>
+              <span>聚焦登录输入框</span>
+              <small>如果你看不到顶部输入框，就在这里直接登录</small>
             </button>
           </div>
         </section>

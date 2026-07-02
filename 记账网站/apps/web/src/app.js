@@ -36,6 +36,9 @@ const elements = {
   signOutBtn: document.querySelector("#signOutBtn"),
   accessGateView: document.querySelector("#accessGateView"),
   focusLoginBtn: document.querySelector("#focusLoginBtn"),
+  gateAuthEmailInput: document.querySelector("#gateAuthEmailInput"),
+  gateSendMagicLinkBtn: document.querySelector("#gateSendMagicLinkBtn"),
+  gateAuthStatusText: document.querySelector("#gateAuthStatusText"),
   shareView: document.querySelector("#shareView"),
   shareSessionDetail: document.querySelector("#shareSessionDetail"),
   homeView: document.querySelector("#homeView"),
@@ -143,8 +146,9 @@ async function init() {
 
 function bindEvents() {
   elements.sendMagicLinkBtn?.addEventListener("click", sendMagicLink);
+  elements.gateSendMagicLinkBtn?.addEventListener("click", sendMagicLink);
   elements.signOutBtn?.addEventListener("click", signOutMember);
-  elements.focusLoginBtn?.addEventListener("click", () => elements.authEmailInput?.focus());
+  elements.focusLoginBtn?.addEventListener("click", () => focusAuth());
   elements.generateShareLinkBtn?.addEventListener("click", generateShareLinkForActiveSession);
   elements.startAccountingBtn.addEventListener("click", openSessionSetupModal);
   elements.confirmSessionSetupBtn.addEventListener("click", confirmSessionSetup);
@@ -520,7 +524,11 @@ function canAccessFullLedger() {
 }
 
 function focusAuth() {
-  elements.authEmailInput?.focus();
+  if (!elements.accessGateView?.hidden) {
+    elements.gateAuthEmailInput?.focus();
+  } else {
+    elements.authEmailInput?.focus();
+  }
   setAuthStatus("locked", "完整账本权限只开放给已登记的成员邮箱。");
 }
 
@@ -688,9 +696,10 @@ async function fetchMembership(user) {
 }
 
 async function sendMagicLink() {
-  const email = elements.authEmailInput?.value.trim();
+  const email = elements.gateAuthEmailInput?.value.trim() || elements.authEmailInput?.value.trim();
   if (!email || !authContext.client) return;
   elements.sendMagicLinkBtn.disabled = true;
+  if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.disabled = true;
   try {
     const { error } = await authContext.client.auth.signInWithOtp({
       email,
@@ -705,6 +714,7 @@ async function sendMagicLink() {
     setAuthStatus("error", "发送登录链接失败，请检查邮箱是否已加入成员名单。");
   } finally {
     elements.sendMagicLinkBtn.disabled = false;
+    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.disabled = false;
   }
 }
 
@@ -839,20 +849,30 @@ function renderAuthState() {
     elements.currentUserEmail.textContent = authContext.user?.email || "";
     elements.signOutBtn.hidden = false;
     elements.authEmailInput.value = authContext.user?.email || "";
+    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.value = authContext.user?.email || "";
     elements.authEmailInput.disabled = true;
+    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.disabled = true;
     elements.sendMagicLinkBtn.hidden = true;
+    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.hidden = true;
   } else if (authContext.user) {
     setAuthStatus("error", "该邮箱已登录，但不在完整账本成员名单内。");
     elements.currentUserEmail.textContent = authContext.user.email || "";
     elements.signOutBtn.hidden = false;
     elements.authEmailInput.disabled = true;
+    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.disabled = true;
     elements.sendMagicLinkBtn.hidden = true;
+    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.hidden = true;
   } else {
     setAuthStatus("local", "未登录。完整账本与英雄榜需要指定成员邮箱登录。");
     elements.currentUserEmail.textContent = "";
     elements.signOutBtn.hidden = true;
     elements.authEmailInput.disabled = false;
+    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.disabled = false;
     elements.sendMagicLinkBtn.hidden = false;
+    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.hidden = false;
+  }
+  if (elements.gateAuthStatusText) {
+    elements.gateAuthStatusText.textContent = elements.authStatusText.textContent;
   }
 }
 
@@ -943,7 +963,7 @@ function renderViews() {
   const allowed = canAccessFullLedger();
   elements.accessGateView.hidden = allowed;
   elements.shareView.hidden = true;
-  elements.homeView.hidden = !allowed && active !== "home" ? false : active !== "home";
+  elements.homeView.hidden = !allowed || active !== "home";
   elements.accountingView.hidden = !allowed || active !== "accounting";
   elements.historyView.hidden = !allowed || active !== "history";
   elements.statsView.hidden = !allowed || active !== "stats";
