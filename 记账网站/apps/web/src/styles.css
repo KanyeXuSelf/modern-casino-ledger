@@ -823,6 +823,15 @@ button:focus-visible {
   gap: 12px;
 }
 
+.cost-grid-pair,
+.cost-grid-names {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cost-grid-share {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .finance-stack .section-head.compact {
   margin-bottom: 4px;
 }
@@ -1404,6 +1413,33 @@ button:focus-visible {
     padding: 14px;
   }
 
+  .finance-stack .cost-grid {
+    gap: 10px;
+  }
+
+  .finance-stack .cost-grid label {
+    gap: 6px;
+  }
+
+  .finance-stack .cost-grid span {
+    font-size: 0.82rem;
+    line-height: 1.25;
+  }
+
+  .finance-stack .cost-grid input {
+    min-height: 42px;
+    padding: 10px 12px;
+  }
+
+  .finance-stack .cost-grid-pair,
+  .finance-stack .cost-grid-names {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finance-stack .cost-grid-share {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .player-card-details,
   .partner-detail-list,
   .merge-card,
@@ -1513,6 +1549,30 @@ button:focus-visible {
   .finance-stack,
   .rebuy-modal form {
     padding: 14px;
+  }
+
+  .finance-stack .cost-grid {
+    gap: 8px;
+  }
+
+  .finance-stack .cost-grid span {
+    font-size: 0.76rem;
+    letter-spacing: 0;
+  }
+
+  .finance-stack .cost-grid input {
+    min-height: 40px;
+    padding: 9px 10px;
+    font-size: 0.92rem;
+  }
+
+  .finance-stack .cost-grid-pair,
+  .finance-stack .cost-grid-names {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finance-stack .cost-grid-share {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .accounting-toolbar {
