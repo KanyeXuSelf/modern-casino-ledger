@@ -6,6 +6,7 @@ export function createRenderModule(runtime) {
     renderViews();
     syncDraftFields();
     syncTimer();
+    renderStartAccountingButton();
     renderHeroStats();
     runtime.sync.renderSyncStatus();
     runtime.auth.renderAuthState();
@@ -93,12 +94,27 @@ export function createRenderModule(runtime) {
     elements.heroPlayerCount.textContent = `${state.players.length}`;
   }
 
+  function renderStartAccountingButton() {
+    if (!elements.startAccountingBtn) return;
+    const title = elements.startAccountingBtn.querySelector("span");
+    const subtitle = elements.startAccountingBtn.querySelector("small");
+    const hasActiveDraft = runtime.hasDraftActivity();
+
+    if (title) {
+      title.textContent = hasActiveDraft ? "继续记账" : "开始记账";
+    }
+    if (subtitle) {
+      subtitle.textContent = hasActiveDraft ? "进入当前进行中的实时账本" : "进入实时牌局记录界面";
+    }
+  }
+
   return {
     render,
     renderViews,
     syncDraftFields,
     syncTimer,
     updateTimerDisplay,
+    renderStartAccountingButton,
     renderHeroStats,
   };
 }

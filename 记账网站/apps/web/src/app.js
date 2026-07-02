@@ -167,6 +167,7 @@ const runtime = {
   renderFinancials,
   renderHistory,
   renderStats,
+  hasDraftActivity,
 };
 
 const authModule = createAuthModule(runtime);
@@ -204,7 +205,7 @@ function bindEvents() {
   });
   elements.signOutBtn?.addEventListener("click", signOutMember);
   elements.generateShareLinkBtn?.addEventListener("click", generateShareLinkForActiveSession);
-  elements.startAccountingBtn.addEventListener("click", openSessionSetupModal);
+  elements.startAccountingBtn.addEventListener("click", handleStartAccounting);
   elements.confirmSessionSetupBtn.addEventListener("click", confirmSessionSetup);
   elements.rebuyForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -362,6 +363,14 @@ function createDefaultDraftSession() {
     players: [],
     partners: createDefaultPartners(),
   };
+}
+
+function handleStartAccounting() {
+  if (hasDraftActivity()) {
+    switchView("accounting");
+    return;
+  }
+  openSessionSetupModal();
 }
 
 function createDraftPlayer() {
@@ -1072,6 +1081,7 @@ function confirmSessionSetup() {
   state.draftSession.dealerSharePercent =
     state.draftSession.dealerShareEnabled === "Yes" ? toNumber(elements.setupDealerShareInput.value) : 0;
   state.draftSession.dealerNames = elements.setupDealerNamesInput.value.trim();
+  ensureSessionStarted();
   state.ui.activeView = "accounting";
   saveState();
   elements.sessionSetupModal.close();
@@ -1640,11 +1650,20 @@ function hasDraftActivity() {
   return Boolean(
     draft.players.length ||
       draft.startedAt ||
+      draft.endedAt ||
+      draft.stage === "settlement" ||
       draft.dealerFee > 0 ||
+      String(draft.dealerNames || "").trim() ||
+      String(draft.collaborationName || "").trim() ||
+      String(draft.notes || "").trim() ||
+      draft.collaboration === "Yes" ||
+      draft.dealerShareEnabled === "Yes" ||
+      toNumber(draft.collaborationSharePercent) > 0 ||
+      toNumber(draft.dealerSharePercent) > 0 ||
       draft.partners.some(
         (partner) =>
           partner.cost > 0 ||
-          partner.advance !== 0 ||
+          toNumber(partner.manualAdvance ?? partner.advance) !== 0 ||
           !isDefaultModernPartner(partner)
       )
   );
