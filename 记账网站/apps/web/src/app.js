@@ -180,6 +180,15 @@ runtime.auth = authModule;
 runtime.sync = syncModule;
 runtime.render = renderModule;
 
+if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+  window.__ledgerDebug = {
+    state,
+    elements,
+    render,
+    saveState,
+  };
+}
+
 init();
 
 async function init() {
@@ -317,6 +326,10 @@ function bindEvents() {
     [elements.collaborationSharePercent, "collaborationSharePercent", "number"],
   ].forEach(([element, key, type]) => {
     element.addEventListener("input", () => {
+      state.draftSession[key] = type === "number" ? toNumber(element.value) : element.value.trim();
+      saveState();
+    });
+    element.addEventListener("change", () => {
       state.draftSession[key] = type === "number" ? toNumber(element.value) : element.value.trim();
       saveState();
       render();
@@ -788,23 +801,12 @@ function renderPlayerRows() {
     const liveCashoutInput = fragment.querySelector(".player-live-cashout");
     const confirmLiveCashoutBtn = fragment.querySelector(".confirm-live-cashout");
     const buyinHistory = fragment.querySelector(".buyin-history");
-    const cashoutInput = fragment.querySelector(".player-cashout");
-    const profitDisplay = fragment.querySelector(".player-profit-display");
     const playtimeDisplay = fragment.querySelector(".player-playtime");
-    const summaryName = fragment.querySelector(".player-summary-name");
-    const summaryTime = fragment.querySelector(".player-summary-time");
-    const summaryBuyin = fragment.querySelector(".player-summary-buyin");
-    const summaryCashout = fragment.querySelector(".player-summary-cashout");
-    const statusSelect = fragment.querySelector(".player-settlement-status");
     const partnerSelect = fragment.querySelector(".player-partner-select");
     const settledAmountInput = fragment.querySelector(".player-settled-amount");
-    const remainingAmountInput = fragment.querySelector(".player-remaining-amount");
-    const insuranceInput = fragment.querySelector(".player-insurance");
-    const preview = fragment.querySelector(".player-preview");
     const removeBtn = fragment.querySelector(".remove-player");
     const settlementFields = fragment.querySelectorAll(".settlement-fields");
     const liveGrid = fragment.querySelector(".player-live-grid");
-    const settlementDetailGrid = fragment.querySelector(".settlement-detail-grid");
     const cardToggle = fragment.querySelector(".player-card-toggle");
     const details = fragment.querySelector(".player-card-details");
     const summaryBuyinInline = fragment.querySelector(".player-summary-inline-buyin");
@@ -820,24 +822,17 @@ function renderPlayerRows() {
     buyinTotal.textContent = formatCurrency(getPlayerBuyInTotal(player));
     buyinCount.textContent = `${player.buyIns.length}`;
     playtimeDisplay.textContent = formatDuration(getPlayerPlayMs(player));
-    cashoutInput.value = player.cashOutRecorded ? playerCashOutTotal : "";
     liveCashoutInput.value = "";
-    statusSelect.value = player.settlementStatus;
     settledAmountInput.value = player.settledAmount;
-    remainingAmountInput.value = player.remainingAmount;
-    insuranceInput.value = player.insuranceProfit;
-    partnerSelect.innerHTML = `<option value="">未指定</option>${partnerOptions
+    partnerSelect.innerHTML = `${partnerOptions
       .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
       .join("")}`;
-    partnerSelect.value = player.partnerName;
+    const defaultPartnerName = partnerOptions.includes("Blue") ? "Blue" : partnerOptions[0] || "";
+    partnerSelect.value = player.partnerName || defaultPartnerName;
 
     const settlementMode = state.draftSession.stage === "settlement";
-    summaryName.textContent = player.name || `玩家 ${index + 1}`;
-    summaryTime.textContent = formatDuration(getPlayerPlayMs(player));
     const playerBuyinTotal = getPlayerBuyInTotal(player);
     const playerProfit = getPlayerProfit(player);
-    summaryBuyin.textContent = formatCurrency(playerBuyinTotal);
-    summaryCashout.textContent = player.cashOutRecorded ? formatCurrency(playerCashOutTotal) : "无";
     if (player.cashOutRecorded) {
       summaryBuyinInline.textContent = formatCurrency(playerProfit);
       summaryBuyinInline.className = `player-summary-inline-buyin player-summary-inline-profit ${playerProfit >= 0 ? "positive" : "negative"}`;
@@ -856,7 +851,6 @@ function renderPlayerRows() {
     article.classList.toggle("player-row-compact", compactMode);
     article.classList.toggle("player-row-settlement", settlementMode);
     liveGrid.hidden = compactMode || settlementMode;
-    settlementDetailGrid.hidden = !settlementExpanded;
     settlementFields.forEach((section) => {
       section.hidden = !settlementExpanded;
     });
@@ -881,10 +875,12 @@ function renderPlayerRows() {
           )
           .join("")
       : `<span class="empty-inline">还没有 buyin / rebuy 记录</span>`;
+    buyinHistory.hidden = settlementMode;
 
-    profitDisplay.textContent = settlementMode ? formatCurrency(playerProfit) : "--";
-    profitDisplay.className = `player-profit-display ${playerProfit >= 0 ? "positive" : "negative"}`;
-    preview.innerHTML = getPlayerPreview(player);
+    const handlePlayerIdentityInput = () => {
+      player.name = nameInput.value.trim();
+      saveState();
+    };
 
     cardToggle.addEventListener("click", () => {
       if (compactMode || settlementMode) return;
@@ -893,9 +889,9 @@ function renderPlayerRows() {
       renderPlayerRows();
     });
 
-    nameInput.addEventListener("input", () => {
-      player.name = nameInput.value.trim();
-      saveState();
+    nameInput.addEventListener("input", handlePlayerIdentityInput);
+    nameInput.addEventListener("change", () => {
+      handlePlayerIdentityInput();
       render();
     });
 
@@ -971,41 +967,37 @@ function renderPlayerRows() {
       render();
     });
 
-    [cashoutInput, statusSelect, partnerSelect, settledAmountInput, remainingAmountInput, insuranceInput].forEach(
-      (input) => {
-        const eventName = input === statusSelect || input === partnerSelect ? "change" : "input";
-        input.addEventListener(eventName, () => {
-          const rawCashout = cashoutInput.value.trim();
-          player.cashOutRecorded = rawCashout !== "";
-          player.cashOut = rawCashout === "" ? 0 : toNumber(rawCashout);
-          const profit = getPlayerProfit(player);
-          const settledAmount = toNumber(settledAmountInput.value);
-          const remainingAmount = toNumber(remainingAmountInput.value);
-          const derivedStatus =
-            profit > 0
-              ? settledAmount >= Math.max(profit - 0.009, 0) && settledAmount > 0
-                ? "settled"
-                : settledAmount > 0
-                ? "partial"
-                : "pending"
-              : remainingAmount > 0
-              ? "partial"
-              : statusSelect.value === "settled" || statusSelect.value === "partial"
-              ? statusSelect.value
-              : "pending";
-          player.settlementStatus = input === statusSelect ? statusSelect.value : derivedStatus;
-          player.partnerName = partnerSelect.value;
-          player.settledAmount = settledAmount;
-          player.remainingAmount = remainingAmount;
-          player.insuranceProfit = toNumber(insuranceInput.value);
-          if (input !== statusSelect) {
-            statusSelect.value = player.settlementStatus;
-          }
-          saveState();
-          render();
-        });
-      }
-    );
+    const syncSettlementDraft = () => {
+      const profit = getPlayerProfit(player);
+      const settledAmount = Math.max(toNumber(settledAmountInput.value), 0);
+      const obligation = Math.abs(profit);
+      player.partnerName = partnerSelect.value || defaultPartnerName;
+      player.settledAmount = settledAmount;
+      player.remainingAmount = obligation > 0 ? Math.max(obligation - settledAmount, 0) : 0;
+      player.settlementStatus =
+        obligation <= 0.009
+          ? "settled"
+          : settledAmount >= Math.max(obligation - 0.009, 0) && settledAmount > 0
+          ? "settled"
+          : settledAmount > 0
+          ? "partial"
+          : "pending";
+    };
+
+    settledAmountInput.addEventListener("input", () => {
+      syncSettlementDraft();
+      saveState();
+    });
+    settledAmountInput.addEventListener("change", () => {
+      syncSettlementDraft();
+      saveState();
+      render();
+    });
+    partnerSelect.addEventListener("change", () => {
+      syncSettlementDraft();
+      saveState();
+      render();
+    });
 
     removeBtn.addEventListener("click", () => {
       state.draftSession.players = state.draftSession.players.filter((item) => item.id !== player.id);
@@ -1334,7 +1326,7 @@ function getPlayerPreview(player) {
 }
 
 function settlementLabel(status) {
-  return { pending: "完全没结", partial: "部分结清", settled: "已结清" }[status] || "完全没结";
+  return { pending: "未结", partial: "部分结清", settled: "已结清" }[status] || "未结";
 }
 
 function getNamedDraftPlayers() {
@@ -1946,12 +1938,10 @@ function openHistorySessionModal(sessionId, mode = "settlement") {
       : renderHistorySessionSettlement(session, partnerNames);
   if (mode === "settlement") {
     elements.historySessionDetail.querySelectorAll("[data-history-player-field]").forEach((field) => {
-      field.addEventListener("input", updateHistorySessionPlayerField);
       field.addEventListener("change", updateHistorySessionPlayerField);
     });
   } else {
     elements.historySessionDetail.querySelectorAll("[data-history-partner-field]").forEach((field) => {
-      field.addEventListener("input", updateHistorySessionPartnerField);
       field.addEventListener("change", updateHistorySessionPartnerField);
     });
   }
