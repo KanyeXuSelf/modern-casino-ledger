@@ -1315,22 +1315,39 @@ button:focus-visible {
   min-width: 0;
   display: grid;
   gap: 2px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: 8px 12px;
+  border: 1px solid rgba(163, 217, 255, 0.12);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(14, 31, 49, 0.96), rgba(10, 23, 38, 0.92)),
+    radial-gradient(circle at left top, rgba(99, 224, 211, 0.08), transparent 48%);
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   text-align: left;
   cursor: pointer;
-  color: var(--ink);
+  color: #eef7ff;
 }
 
 .dense-history-main strong {
   font-size: 0.94rem;
   line-height: 1.15;
+  color: #f4fbff;
+  font-weight: 700;
 }
 
 .dense-history-main .session-item-meta {
   font-size: 0.72rem;
   line-height: 1.25;
+  color: #9eb9d8;
+}
+
+.dense-history-main:hover,
+.dense-history-main:focus-visible {
+  border-color: rgba(99, 224, 211, 0.26);
+  background:
+    linear-gradient(180deg, rgba(18, 39, 61, 0.98), rgba(12, 28, 45, 0.96)),
+    radial-gradient(circle at left top, rgba(99, 224, 211, 0.12), transparent 52%);
 }
 
 .dense-history-actions {
@@ -2310,6 +2327,11 @@ button:focus-visible {
   .dense-history-main .session-item-meta {
     font-size: 0.66rem;
     line-height: 1.15;
+  }
+
+  .dense-history-main {
+    padding: 7px 10px;
+    border-radius: 10px;
   }
 
   .compact-row-actions {
