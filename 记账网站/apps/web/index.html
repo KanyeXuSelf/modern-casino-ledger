@@ -8,7 +8,7 @@
   </head>
   <body>
     <div class="page-shell">
-      <header class="hero">
+      <header id="heroHeader" class="hero">
         <div>
           <p class="eyebrow">Poker Ledger</p>
           <h1>开局账本</h1>
@@ -33,10 +33,6 @@
           <div class="auth-panel">
             <strong id="authStatusBadge" class="sync-status local">未登录</strong>
             <p id="authStatusText" class="sync-status-text">完整账本、历史账单和英雄榜仅对指定成员开放。</p>
-            <div class="auth-inline">
-              <input id="authEmailInput" type="email" placeholder="输入成员邮箱获取登录链接" />
-              <button id="sendMagicLinkBtn" class="primary-button" type="button">发送登录链接</button>
-            </div>
             <div class="toolbar wrap">
               <span id="currentUserEmail" class="session-item-meta"></span>
               <button id="signOutBtn" class="ghost-button" type="button" hidden>退出登录</button>
@@ -56,33 +52,30 @@
           <div id="shareSessionDetail" class="stack"></div>
         </section>
 
-        <section id="accessGateView" class="card" hidden>
+        <section id="accessGateView" class="card login-card" hidden>
           <div class="section-head">
             <div>
-              <p class="section-kicker">Member Access</p>
-              <h2>完整账本需要成员登录</h2>
+              <p class="section-kicker">Sign In</p>
+              <h2>请输入用户名和密码</h2>
             </div>
           </div>
           <p class="hero-copy">
-            指定合伙人登录后可查看全部历史账单、统计和英雄榜。外部合作伙伴仅建议使用单场账单分享链接。
+            完整账本、历史账单和英雄榜仅对指定成员开放。单场账单分享链接不需要登录。
           </p>
           <div class="grid two">
             <label>
-              <span>成员邮箱</span>
-              <input id="gateAuthEmailInput" type="email" placeholder="输入成员邮箱获取登录链接" />
+              <span>用户名</span>
+              <input id="gateUsernameInput" type="text" placeholder="例如：Kanye" />
             </label>
             <label>
-              <span>登录动作</span>
-              <button id="gateSendMagicLinkBtn" class="primary-button" type="button">发送登录链接</button>
+              <span>密码</span>
+              <input id="gatePasswordInput" type="password" placeholder="输入密码" />
             </label>
           </div>
-          <p id="gateAuthStatusText" class="session-item-meta">登录后会自动解锁完整账本。</p>
-          <div class="menu-grid">
-            <button id="focusLoginBtn" class="menu-button primary-button" type="button">
-              <span>聚焦登录输入框</span>
-              <small>如果你看不到顶部输入框，就在这里直接登录</small>
-            </button>
+          <div class="toolbar wrap">
+            <button id="gateLoginBtn" class="primary-button" type="button">登录完整账本</button>
           </div>
+          <p id="gateAuthStatusText" class="session-item-meta">登录后会自动解锁完整账本。</p>
         </section>
 
         <section id="homeView" class="card home-card">

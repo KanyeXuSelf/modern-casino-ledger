@@ -229,6 +229,11 @@ h3 {
   padding: 24px;
 }
 
+.login-card {
+  width: min(680px, 100%);
+  margin: 8vh auto 0;
+}
+
 .section-head {
   display: flex;
   justify-content: space-between;

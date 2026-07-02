@@ -24,20 +24,19 @@ const syncContext = {
 };
 
 const elements = {
+  heroHeader: document.querySelector("#heroHeader"),
   heroSessionCount: document.querySelector("#heroSessionCount"),
   heroPlayerCount: document.querySelector("#heroPlayerCount"),
   syncStatusBadge: document.querySelector("#syncStatusBadge"),
   syncStatusText: document.querySelector("#syncStatusText"),
   authStatusBadge: document.querySelector("#authStatusBadge"),
   authStatusText: document.querySelector("#authStatusText"),
-  authEmailInput: document.querySelector("#authEmailInput"),
-  sendMagicLinkBtn: document.querySelector("#sendMagicLinkBtn"),
   currentUserEmail: document.querySelector("#currentUserEmail"),
   signOutBtn: document.querySelector("#signOutBtn"),
   accessGateView: document.querySelector("#accessGateView"),
-  focusLoginBtn: document.querySelector("#focusLoginBtn"),
-  gateAuthEmailInput: document.querySelector("#gateAuthEmailInput"),
-  gateSendMagicLinkBtn: document.querySelector("#gateSendMagicLinkBtn"),
+  gateUsernameInput: document.querySelector("#gateUsernameInput"),
+  gatePasswordInput: document.querySelector("#gatePasswordInput"),
+  gateLoginBtn: document.querySelector("#gateLoginBtn"),
   gateAuthStatusText: document.querySelector("#gateAuthStatusText"),
   shareView: document.querySelector("#shareView"),
   shareSessionDetail: document.querySelector("#shareSessionDetail"),
@@ -145,10 +144,16 @@ async function init() {
 }
 
 function bindEvents() {
-  elements.sendMagicLinkBtn?.addEventListener("click", sendMagicLink);
-  elements.gateSendMagicLinkBtn?.addEventListener("click", sendMagicLink);
+  elements.gateLoginBtn?.addEventListener("click", loginWithPassword);
+  [elements.gateUsernameInput, elements.gatePasswordInput].forEach((input) => {
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loginWithPassword();
+      }
+    });
+  });
   elements.signOutBtn?.addEventListener("click", signOutMember);
-  elements.focusLoginBtn?.addEventListener("click", () => focusAuth());
   elements.generateShareLinkBtn?.addEventListener("click", generateShareLinkForActiveSession);
   elements.startAccountingBtn.addEventListener("click", openSessionSetupModal);
   elements.confirmSessionSetupBtn.addEventListener("click", confirmSessionSetup);
@@ -524,11 +529,7 @@ function canAccessFullLedger() {
 }
 
 function focusAuth() {
-  if (!elements.accessGateView?.hidden) {
-    elements.gateAuthEmailInput?.focus();
-  } else {
-    elements.authEmailInput?.focus();
-  }
+  elements.gateUsernameInput?.focus();
   setAuthStatus("locked", "完整账本权限只开放给已登记的成员邮箱。");
 }
 
@@ -684,7 +685,7 @@ async function fetchMembership(user) {
   if (!user?.email || !authContext.client) return null;
   const { data, error } = await authContext.client
     .from(config.workspaceMembersTable)
-    .select("workspace_id,email,role,display_name")
+    .select("workspace_id,email,username,role,display_name")
     .eq("workspace_id", config.workspaceId)
     .eq("email", user.email)
     .maybeSingle();
@@ -695,26 +696,45 @@ async function fetchMembership(user) {
   return data || null;
 }
 
-async function sendMagicLink() {
-  const email = elements.gateAuthEmailInput?.value.trim() || elements.authEmailInput?.value.trim();
-  if (!email || !authContext.client) return;
-  elements.sendMagicLinkBtn.disabled = true;
-  if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.disabled = true;
+async function resolveLoginEmail(identifier) {
+  if (!identifier || !authContext.client) return "";
+  if (identifier.includes("@")) return identifier;
+  const { data, error } = await authContext.client.rpc("get_login_email", {
+    p_workspace_id: config.workspaceId,
+    p_username: identifier,
+  });
+  if (error) {
+    console.error("resolve login email failed", error);
+    return "";
+  }
+  const resolved = Array.isArray(data) ? data[0] : data;
+  return resolved?.email || "";
+}
+
+async function loginWithPassword() {
+  const identifier = elements.gateUsernameInput?.value.trim();
+  const password = elements.gatePasswordInput?.value || "";
+  if (!identifier || !password || !authContext.client) return;
+  elements.gateLoginBtn.disabled = true;
   try {
-    const { error } = await authContext.client.auth.signInWithOtp({
+    setAuthStatus("connecting", "正在验证用户名和密码。");
+    const email = await resolveLoginEmail(identifier);
+    if (!email) {
+      setAuthStatus("error", "找不到这个用户名，请检查拼写或联系管理员。");
+      return;
+    }
+    const { error } = await authContext.client.auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo: window.location.origin + window.location.pathname,
-      },
+      password,
     });
     if (error) throw error;
-    setAuthStatus("connecting", "登录链接已发送，请去邮箱里点开 magic link。");
+    elements.gatePasswordInput.value = "";
+    setAuthStatus("synced", "登录成功，正在加载完整账本。");
   } catch (error) {
-    console.error("send magic link failed", error);
-    setAuthStatus("error", "发送登录链接失败，请检查邮箱是否已加入成员名单。");
+    console.error("password login failed", error);
+    setAuthStatus("error", "用户名或密码错误，或者该账号尚未开通密码登录。");
   } finally {
-    elements.sendMagicLinkBtn.disabled = false;
-    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.disabled = false;
+    elements.gateLoginBtn.disabled = false;
   }
 }
 
@@ -845,31 +865,32 @@ function renderSyncStatus() {
 function renderAuthState() {
   if (!elements.authStatusBadge || !elements.authStatusText) return;
   if (authContext.member) {
-    setAuthStatus("synced", `已登录成员：${authContext.member.display_name || authContext.member.email}`);
+    setAuthStatus("synced", `已登录：${authContext.member.display_name || authContext.member.username || authContext.member.email}`);
     elements.currentUserEmail.textContent = authContext.user?.email || "";
     elements.signOutBtn.hidden = false;
-    elements.authEmailInput.value = authContext.user?.email || "";
-    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.value = authContext.user?.email || "";
-    elements.authEmailInput.disabled = true;
-    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.disabled = true;
-    elements.sendMagicLinkBtn.hidden = true;
-    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.hidden = true;
+    if (elements.gateUsernameInput) {
+      elements.gateUsernameInput.value = authContext.member.username || "";
+      elements.gateUsernameInput.disabled = true;
+    }
+    if (elements.gatePasswordInput) {
+      elements.gatePasswordInput.value = "";
+      elements.gatePasswordInput.disabled = true;
+    }
+    if (elements.gateLoginBtn) elements.gateLoginBtn.hidden = true;
   } else if (authContext.user) {
     setAuthStatus("error", "该邮箱已登录，但不在完整账本成员名单内。");
     elements.currentUserEmail.textContent = authContext.user.email || "";
     elements.signOutBtn.hidden = false;
-    elements.authEmailInput.disabled = true;
-    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.disabled = true;
-    elements.sendMagicLinkBtn.hidden = true;
-    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.hidden = true;
+    if (elements.gateUsernameInput) elements.gateUsernameInput.disabled = true;
+    if (elements.gatePasswordInput) elements.gatePasswordInput.disabled = true;
+    if (elements.gateLoginBtn) elements.gateLoginBtn.hidden = true;
   } else {
-    setAuthStatus("local", "未登录。完整账本与英雄榜需要指定成员邮箱登录。");
+    setAuthStatus("local", "未登录。请输入用户名和密码。");
     elements.currentUserEmail.textContent = "";
     elements.signOutBtn.hidden = true;
-    elements.authEmailInput.disabled = false;
-    if (elements.gateAuthEmailInput) elements.gateAuthEmailInput.disabled = false;
-    elements.sendMagicLinkBtn.hidden = false;
-    if (elements.gateSendMagicLinkBtn) elements.gateSendMagicLinkBtn.hidden = false;
+    if (elements.gateUsernameInput) elements.gateUsernameInput.disabled = false;
+    if (elements.gatePasswordInput) elements.gatePasswordInput.disabled = false;
+    if (elements.gateLoginBtn) elements.gateLoginBtn.hidden = false;
   }
   if (elements.gateAuthStatusText) {
     elements.gateAuthStatusText.textContent = elements.authStatusText.textContent;
@@ -951,6 +972,7 @@ function render() {
 function renderViews() {
   if (shareToken) {
     elements.accessGateView.hidden = true;
+    elements.heroHeader.hidden = true;
     elements.homeView.hidden = true;
     elements.accountingView.hidden = true;
     elements.historyView.hidden = true;
@@ -961,6 +983,7 @@ function renderViews() {
 
   const active = state.ui.activeView || "home";
   const allowed = canAccessFullLedger();
+  elements.heroHeader.hidden = !allowed;
   elements.accessGateView.hidden = allowed;
   elements.shareView.hidden = true;
   elements.homeView.hidden = !allowed || active !== "home";

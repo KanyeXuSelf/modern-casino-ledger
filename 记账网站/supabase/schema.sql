@@ -2,12 +2,18 @@ create table if not exists public.workspace_members (
   id bigint generated always as identity primary key,
   workspace_id text not null,
   email text not null,
+  username text,
   display_name text not null default '',
   role text not null default 'editor',
   created_at timestamptz not null default timezone('utc', now()),
   unique (workspace_id, email),
   check (role in ('owner', 'editor', 'viewer'))
 );
+
+alter table public.workspace_members add column if not exists username text;
+create unique index if not exists workspace_members_workspace_username_idx
+on public.workspace_members (workspace_id, lower(username))
+where username is not null and username <> '';
 
 create table if not exists public.workspace_state (
   workspace_id text primary key,
@@ -120,5 +126,23 @@ $$;
 
 revoke all on function public.get_shared_session(text) from public;
 grant execute on function public.get_shared_session(text) to anon, authenticated;
+
+create or replace function public.get_login_email(p_workspace_id text, p_username text)
+returns table (
+  email text
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select wm.email
+  from public.workspace_members wm
+  where wm.workspace_id = p_workspace_id
+    and lower(coalesce(wm.username, '')) = lower(p_username)
+  limit 1;
+$$;
+
+revoke all on function public.get_login_email(text, text) from public;
+grant execute on function public.get_login_email(text, text) to anon, authenticated;
 
 alter publication supabase_realtime add table public.workspace_state;
