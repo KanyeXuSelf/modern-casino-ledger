@@ -2,11 +2,18 @@
   --bg: #08101b;
   --paper: rgba(10, 20, 34, 0.78);
   --paper-strong: rgba(13, 26, 44, 0.94);
+  --surface-soft: rgba(14, 29, 47, 0.88);
+  --surface-muted: rgba(18, 34, 54, 0.78);
+  --surface-pill: rgba(22, 38, 60, 0.92);
   --ink: #edf5ff;
+  --ink-soft: #d9e7fa;
   --muted: #98aeca;
+  --muted-strong: #b4c8e3;
   --line: rgba(123, 177, 231, 0.16);
+  --line-strong: rgba(123, 177, 231, 0.24);
   --accent: #f2a54a;
   --accent-deep: #d86b36;
+  --danger: #ff8f7d;
   --emerald: #63e0d3;
   --gold: #f5c06f;
   --shadow: 0 24px 80px rgba(3, 8, 16, 0.42);
@@ -43,6 +50,12 @@ input,
 select,
 textarea {
   font: inherit;
+  color: inherit;
+}
+
+::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 
 .page-shell {
@@ -97,6 +110,7 @@ h3,
 h4 {
   margin: 0;
   font-family: var(--font-display);
+  color: var(--ink);
 }
 
 h1 {
@@ -176,14 +190,14 @@ h3 {
   display: grid;
   gap: 8px;
   padding-top: 4px;
-  border-top: 1px solid rgba(31, 26, 23, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .auth-panel {
   display: grid;
   gap: 10px;
   padding-top: 4px;
-  border-top: 1px solid rgba(31, 26, 23, 0.08);
+  border-top: 1px solid var(--line);
 }
 
 .auth-inline {
@@ -383,6 +397,15 @@ select {
   color: var(--ink);
 }
 
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: none;
+  border-color: rgba(142, 223, 255, 0.42);
+  box-shadow: 0 0 0 3px rgba(142, 223, 255, 0.12);
+}
+
 .primary-button,
 .accent-button,
 .ghost-button,
@@ -399,20 +422,29 @@ select {
 }
 
 .accent-button {
-  background: rgba(178, 74, 46, 0.1);
-  color: var(--accent-deep);
+  background: rgba(216, 107, 54, 0.18);
+  color: #ffb46e;
+  border: 1px solid rgba(242, 165, 74, 0.18);
 }
 
 .ghost-button,
 .menu-card {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--ink);
-  border: 1px solid rgba(163, 217, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+
+.primary-button:hover,
+.accent-button:hover,
+.ghost-button:hover,
+.menu-card:hover {
+  filter: brightness(1.06);
 }
 
 .danger-button {
-  color: #b42318;
-  border-color: rgba(180, 35, 24, 0.18);
+  color: var(--danger);
+  background: rgba(126, 43, 31, 0.1);
+  border-color: rgba(255, 143, 125, 0.22);
 }
 
 .toolbar {
@@ -448,8 +480,8 @@ select {
   width: 100%;
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  border: 1px solid rgba(31, 26, 23, 0.08);
-  background: rgba(255, 250, 242, 0.9);
+  border: 1px solid var(--line);
+  background: var(--surface-pill);
   color: var(--ink);
   cursor: pointer;
   text-align: left;
@@ -597,8 +629,8 @@ select {
 .overview-card,
 .stat-strip {
   border-radius: var(--radius-lg);
-  background: rgba(11, 23, 39, 0.76);
-  border: 1px solid rgba(163, 217, 255, 0.1);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
 }
 
 .player-row,
@@ -608,7 +640,8 @@ select {
 }
 
 .player-row-compact {
-  background: rgba(209, 184, 149, 0.68);
+  background: rgba(18, 35, 54, 0.86);
+  border: 1px solid rgba(242, 165, 74, 0.16);
 }
 
 .player-row-compact .player-card-toggle {
@@ -719,9 +752,10 @@ select {
 .buyin-chip,
 .player-tag {
   border: 1px solid rgba(242, 165, 74, 0.18);
-  background: rgba(14, 28, 45, 0.86);
+  background: var(--surface-pill);
   border-radius: 999px;
   padding: 8px 12px;
+  color: var(--ink-soft);
 }
 
 .buyin-chip {
@@ -737,8 +771,8 @@ select {
 .buyin-history {
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  background: rgba(13, 27, 43, 0.62);
-  border: 1px solid rgba(163, 217, 255, 0.08);
+  background: rgba(13, 27, 43, 0.74);
+  border: 1px solid var(--line);
 }
 
 .player-preview {
@@ -836,13 +870,13 @@ select {
 .session-summary-item {
   padding: 12px 14px;
   border-radius: var(--radius-md);
-  background: rgba(255, 250, 242, 0.72);
-  border: 1px solid rgba(31, 26, 23, 0.07);
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
 }
 
 .session-summary-item span {
   display: block;
-  color: var(--muted);
+  color: var(--muted-strong);
   font-size: 0.88rem;
 }
 
@@ -851,6 +885,7 @@ select {
   margin-top: 6px;
   font-size: 1rem;
   font-family: var(--font-display);
+  color: var(--ink);
 }
 
 .settlement-badge {
@@ -877,7 +912,7 @@ select {
   display: inline-flex;
   align-items: center;
   margin-left: 8px;
-  color: #b42318;
+  color: var(--danger);
   font-size: 0.9rem;
   font-weight: 600;
 }
@@ -898,8 +933,9 @@ select {
 .empty-state {
   padding: 22px;
   border-radius: var(--radius-lg);
-  border: 1px dashed rgba(31, 26, 23, 0.18);
+  border: 1px dashed var(--line-strong);
   color: var(--muted);
+  background: rgba(12, 24, 40, 0.44);
 }
 
 .player-insight {
@@ -926,7 +962,7 @@ select {
 }
 
 .chart .baseline {
-  stroke: rgba(31, 26, 23, 0.18);
+  stroke: var(--line-strong);
   stroke-dasharray: 5 5;
 }
 
@@ -967,7 +1003,7 @@ select {
 
 .player-row-settlement .player-card-summary {
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(31, 26, 23, 0.08);
+  border-bottom: 1px solid var(--line);
 }
 
 .history-player-card {
@@ -990,8 +1026,8 @@ select {
 .partner-detail-card {
   padding: 14px;
   border-radius: var(--radius-lg);
-  background: rgba(12, 24, 40, 0.72);
-  border: 1px solid rgba(163, 217, 255, 0.08);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
 }
 
 .debt-card {
@@ -1004,6 +1040,20 @@ select {
 
 .negative {
   color: var(--accent-deep);
+}
+
+.player-card-toggle,
+.player-card-toggle strong,
+.session-item h3,
+.history-player-card h3,
+.history-player-card h4,
+.partner-detail-card h3,
+.partner-detail-card h4,
+.leaderboard-row strong,
+.rebuy-modal .section-head h3,
+.rebuy-modal label,
+.rebuy-modal label span {
+  color: var(--ink);
 }
 
 @media (max-width: 960px) {
