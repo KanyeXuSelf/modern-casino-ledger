@@ -1483,6 +1483,75 @@ button:focus-visible {
     -webkit-overflow-scrolling: touch;
   }
 
+  .player-row .player-card-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .player-row .player-card-toggle {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .player-row .player-card-summary .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .player-row .player-card-summary .toolbar > * {
+    flex: initial;
+  }
+
+  .player-row .player-summary-cashout-action {
+    min-width: 0;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .player-row .player-summary-cashout-action .ghost-button,
+  .player-row .player-card-summary .remove-player,
+  .player-row .player-card-summary .resume-player {
+    min-height: 40px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+
+  .player-row .player-summary-inline {
+    display: grid;
+    gap: 4px;
+  }
+
+  .player-row .player-summary-inline-buyin,
+  .player-row .player-summary-inline-cashout {
+    font-size: 0.86rem;
+    line-height: 1.3;
+  }
+
+  .partner-row .partner-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .partner-row .partner-grid > label {
+    min-width: 0;
+  }
+
+  .partner-row .partner-grid .toolbar.end {
+    grid-column: 2;
+    justify-content: flex-end;
+    align-self: end;
+  }
+
+  .partner-row .partner-grid .remove-partner {
+    min-height: 40px;
+    padding: 8px 12px;
+  }
+
   .player-builder > .section-head.compact,
   #profitPanel > .section-head.compact {
     flex-direction: row;
@@ -1573,6 +1642,23 @@ button:focus-visible {
 
   .finance-stack .cost-grid-share {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .player-row .player-card-summary .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .player-row .player-summary-cashout-action {
+    grid-template-columns: 1fr;
+  }
+
+  .partner-row .partner-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .partner-row .partner-grid .toolbar.end {
+    grid-column: 2;
   }
 
   .accounting-toolbar {
