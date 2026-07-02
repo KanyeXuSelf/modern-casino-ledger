@@ -23,6 +23,8 @@
   --font-ui: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --font-display: var(--font-ui);
   --font-body: var(--font-ui);
+  --app-bg-image: url("./assets/modern-casino-bg-desktop.png");
+  --app-bg-position: center;
 }
 
 * {
@@ -42,7 +44,7 @@ body {
   overflow-x: hidden;
   background:
     linear-gradient(180deg, rgba(3, 9, 18, 0.2), rgba(3, 9, 18, 0.72)),
-    url("./assets/modern-casino-bg.svg") center/cover fixed no-repeat,
+    var(--app-bg-image) var(--app-bg-position) / cover fixed no-repeat,
     linear-gradient(180deg, #08101b 0%, #10253b 100%);
 }
 
@@ -284,7 +286,7 @@ h3 {
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(5, 12, 22, 0.38), rgba(5, 12, 22, 0.78)),
-    url("./assets/modern-casino-bg.svg") center/cover no-repeat;
+    var(--app-bg-image) center/cover no-repeat;
 }
 
 .login-stage {
@@ -2095,10 +2097,15 @@ button:focus-visible {
 }
 
 @media (max-width: 520px) {
+  :root {
+    --app-bg-image: url("./assets/modern-casino-bg-mobile.png");
+    --app-bg-position: top center;
+  }
+
   body {
     background:
       linear-gradient(180deg, rgba(3, 9, 18, 0.3), rgba(3, 9, 18, 0.82)),
-      url("./assets/modern-casino-bg.svg") top center/cover fixed no-repeat,
+      var(--app-bg-image) var(--app-bg-position) / cover fixed no-repeat,
       linear-gradient(180deg, #08101b 0%, #10253b 100%);
   }
 
