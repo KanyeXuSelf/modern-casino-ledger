@@ -704,6 +704,11 @@ button:focus-visible {
   border-color: rgba(242, 165, 74, 0.16);
 }
 
+.player-stage-actions {
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
 .player-row,
 .partner-row,
 .session-item,
@@ -763,11 +768,49 @@ button:focus-visible {
   cursor: pointer;
 }
 
+.player-summary-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .player-summary-inline {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   color: var(--muted);
+}
+
+.player-settlement-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.player-settlement-badge.pending {
+  background: rgba(255, 184, 76, 0.14);
+  border: 1px solid rgba(255, 184, 76, 0.26);
+  color: #ffd28b;
+}
+
+.player-settlement-badge.partial {
+  background: rgba(86, 211, 255, 0.14);
+  border: 1px solid rgba(86, 211, 255, 0.24);
+  color: #9fe8ff;
+}
+
+.player-settlement-badge.settled {
+  background: rgba(44, 214, 163, 0.16);
+  border: 1px solid rgba(83, 244, 191, 0.26);
+  color: #c5ffef;
 }
 
 .player-summary-inline-buyin {
@@ -1200,6 +1243,15 @@ button:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+.player-row-settlement {
+  background: rgba(14, 31, 49, 0.94);
+  border: 1px solid rgba(86, 211, 255, 0.16);
+}
+
+.player-row-settlement .player-card-details {
+  margin-top: 12px;
+}
+
 .history-player-card {
   display: grid;
   gap: 12px;
@@ -1562,6 +1614,11 @@ button:focus-visible {
     grid-template-columns: minmax(0, 0.68fr) minmax(0, 1.32fr);
   }
 
+  .player-stage-actions {
+    grid-template-columns: minmax(0, 0.68fr) minmax(0, 1.32fr);
+    width: 100%;
+  }
+
   #returnLiveBtn {
     grid-column: 1 / -1;
   }
@@ -1699,6 +1756,12 @@ button:focus-visible {
     font-size: 1.28rem;
     line-height: 1.1;
     font-weight: 800;
+  }
+
+  .player-row .player-settlement-badge {
+    min-height: 24px;
+    padding: 3px 8px;
+    font-size: 0.72rem;
   }
 
   .player-row .player-summary-inline-buyin {
@@ -1958,10 +2021,24 @@ button:focus-visible {
     grid-template-columns: minmax(0, 0.68fr) minmax(0, 1.32fr);
   }
 
+  .player-stage-actions {
+    grid-template-columns: minmax(0, 0.68fr) minmax(0, 1.32fr);
+  }
+
   .workflow-action-row > button,
   .timer-chip,
   .stage-pill {
     min-height: 40px;
+  }
+
+  .player-row .player-summary-head {
+    gap: 6px;
+  }
+
+  .player-row .player-settlement-badge {
+    min-height: 22px;
+    padding: 2px 7px;
+    font-size: 0.68rem;
   }
 
   .history-player-toggle,

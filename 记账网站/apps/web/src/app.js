@@ -279,8 +279,14 @@ function bindEvents() {
       alert("请先记录玩家 buyin，再进入结算。");
       return;
     }
+    const pendingCashoutPlayers = getNamedDraftPlayers().filter((player) => !player.cashOutRecorded);
+    if (pendingCashoutPlayers.length) {
+      alert(`以下玩家还没完成 Cash Out，不能进入结算：${pendingCashoutPlayers.map((player) => player.name).join("、")}`);
+      return;
+    }
     finalizeLiveSession();
     state.draftSession.stage = "settlement";
+    state.ui.expandedPlayerId = "";
     saveState();
     render();
   });
@@ -288,6 +294,7 @@ function bindEvents() {
   elements.returnLiveBtn.addEventListener("click", () => {
     resumeLiveSession();
     state.draftSession.stage = "live";
+    state.ui.expandedPlayerId = "";
     saveState();
     render();
   });
@@ -804,6 +811,7 @@ function renderPlayerRows() {
     const summaryCashoutInline = fragment.querySelector(".player-summary-inline-cashout");
     const summaryRebuyBtn = fragment.querySelector(".summary-rebuy-action");
     const summaryCashoutTrigger = fragment.querySelector(".summary-cashout-trigger");
+    const settlementBadge = fragment.querySelector(".player-settlement-badge");
     const resumeBtn = fragment.querySelector(".resume-player");
     const article = fragment.querySelector(".player-row");
     const playerCashOutTotal = getPlayerCashOutTotal(player);
@@ -842,19 +850,28 @@ function renderPlayerRows() {
           player.cashOutRecorded ? formatCurrency(playerCashOutTotal) : "无"
         }`
       : "";
-    const expanded = settlementMode || (state.ui.expandedPlayerId === player.id && !player.exited);
-    const compactMode = player.exited && !settlementMode;
+    const settlementExpanded = settlementMode && state.ui.expandedPlayerId === player.id;
+    const expanded = settlementExpanded || (state.ui.expandedPlayerId === player.id && !player.exited && !settlementMode);
+    const compactMode = (player.exited && !settlementMode) || (settlementMode && !settlementExpanded);
     article.classList.toggle("player-row-compact", compactMode);
     article.classList.toggle("player-row-settlement", settlementMode);
     liveGrid.hidden = compactMode || settlementMode;
-    settlementDetailGrid.hidden = !settlementMode;
+    settlementDetailGrid.hidden = !settlementExpanded;
     settlementFields.forEach((section) => {
-      section.hidden = !settlementMode;
+      section.hidden = !settlementExpanded;
     });
     details.hidden = !expanded;
-    if (summaryRebuyBtn) summaryRebuyBtn.hidden = compactMode || settlementMode;
+    if (summaryRebuyBtn) {
+      summaryRebuyBtn.hidden = compactMode ? !settlementMode : false;
+      summaryRebuyBtn.textContent = settlementMode ? (settlementExpanded ? "收起结账" : "结账") : "Rebuy";
+    }
     if (summaryCashoutTrigger) summaryCashoutTrigger.hidden = compactMode || settlementMode;
     resumeBtn.hidden = !(player.exited && !settlementMode);
+    if (settlementBadge) {
+      settlementBadge.hidden = !settlementMode;
+      settlementBadge.textContent = settlementLabel(player.settlementStatus);
+      settlementBadge.className = `player-settlement-badge ${player.settlementStatus}`;
+    }
 
     buyinHistory.innerHTML = player.buyIns.length
       ? player.buyIns
@@ -917,6 +934,20 @@ function renderPlayerRows() {
     });
 
     summaryRebuyBtn?.addEventListener("click", () => {
+      if (settlementMode) {
+        state.ui.expandedPlayerId = settlementExpanded ? "" : player.id;
+        saveState();
+        renderPlayerRows();
+        if (!settlementExpanded) {
+          requestAnimationFrame(() => {
+            const currentPlayerCards = Array.from(elements.playerRows.querySelectorAll(".player-row"));
+            const currentCard = currentPlayerCards[index];
+            const settledField = currentCard?.querySelector(".player-settled-amount");
+            settledField?.focus();
+          });
+        }
+        return;
+      }
       elements.rebuyPlayerSelect.value = player.id;
       openRebuyModal();
     });
@@ -935,7 +966,7 @@ function renderPlayerRows() {
 
     resumeBtn.addEventListener("click", () => {
       resumePlayer(player);
-      state.ui.expandedPlayerId = player.id;
+      state.ui.expandedPlayerId = "";
       saveState();
       render();
     });
@@ -947,13 +978,31 @@ function renderPlayerRows() {
           const rawCashout = cashoutInput.value.trim();
           player.cashOutRecorded = rawCashout !== "";
           player.cashOut = rawCashout === "" ? 0 : toNumber(rawCashout);
-          player.settlementStatus = statusSelect.value;
+          const profit = getPlayerProfit(player);
+          const settledAmount = toNumber(settledAmountInput.value);
+          const remainingAmount = toNumber(remainingAmountInput.value);
+          const derivedStatus =
+            profit > 0
+              ? settledAmount >= Math.max(profit - 0.009, 0) && settledAmount > 0
+                ? "settled"
+                : settledAmount > 0
+                ? "partial"
+                : "pending"
+              : remainingAmount > 0
+              ? "partial"
+              : statusSelect.value === "settled" || statusSelect.value === "partial"
+              ? statusSelect.value
+              : "pending";
+          player.settlementStatus = input === statusSelect ? statusSelect.value : derivedStatus;
           player.partnerName = partnerSelect.value;
-          player.settledAmount = toNumber(settledAmountInput.value);
-          player.remainingAmount = toNumber(remainingAmountInput.value);
+          player.settledAmount = settledAmount;
+          player.remainingAmount = remainingAmount;
           player.insuranceProfit = toNumber(insuranceInput.value);
+          if (input !== statusSelect) {
+            statusSelect.value = player.settlementStatus;
+          }
           saveState();
-          renderFinancials();
+          render();
         });
       }
     );
@@ -1285,7 +1334,7 @@ function getPlayerPreview(player) {
 }
 
 function settlementLabel(status) {
-  return { pending: "未结账", partial: "部分结账", settled: "已结账" }[status] || "未结账";
+  return { pending: "完全没结", partial: "部分结清", settled: "已结清" }[status] || "完全没结";
 }
 
 function getNamedDraftPlayers() {
@@ -1562,6 +1611,12 @@ function resumePlayer(player) {
   player.endedAt = "";
   player.pausedForSettlement = false;
   player.cashOutRecorded = false;
+  player.cashOut = 0;
+  player.cashOuts = [];
+  player.settlementStatus = "pending";
+  player.settledAmount = 0;
+  player.remainingAmount = 0;
+  player.partnerName = "";
 }
 
 function getSessionDurationMs() {

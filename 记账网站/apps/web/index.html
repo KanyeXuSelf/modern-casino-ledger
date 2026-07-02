@@ -130,11 +130,6 @@
                   <strong id="sessionTimerDisplay">00:00:00</strong>
                 </div>
               </div>
-              <div class="toolbar wrap workflow-action-row">
-                <button id="openRebuyModalBtn" class="accent-button" type="button">Rebuy</button>
-                <button id="enterSettlementBtn" class="accent-button" type="button">牌局结束，进入结算</button>
-                <button id="returnLiveBtn" class="ghost-button" type="button" hidden>返回进行中</button>
-              </div>
             </div>
 
             <div id="sessionMetaPrimary" class="grid two" hidden>
@@ -175,6 +170,11 @@
                 玩家列表初始为空。加入玩家时同时记录原始 buyin 和上桌开始时间。中途 cashout 后，该玩家会收起为简洁记录条。
               </p>
               <div id="playerRows" class="player-rows"></div>
+              <div class="toolbar wrap workflow-action-row player-stage-actions">
+                <button id="openRebuyModalBtn" class="accent-button" type="button">Rebuy</button>
+                <button id="enterSettlementBtn" class="accent-button" type="button">牌局结束，进入结算</button>
+                <button id="returnLiveBtn" class="ghost-button" type="button" hidden>返回进行中</button>
+              </div>
             </div>
 
             <section id="profitPanel" class="profit-panel">
@@ -502,7 +502,10 @@
       <article class="player-row">
         <div class="player-card-summary">
           <button class="player-card-toggle" type="button">
-            <strong class="row-index"></strong>
+            <span class="player-summary-head">
+              <strong class="row-index"></strong>
+              <span class="player-settlement-badge" hidden></span>
+            </span>
             <span class="player-summary-inline">
               <span class="player-summary-inline-buyin"></span>
               <span class="player-summary-inline-cashout"></span>
