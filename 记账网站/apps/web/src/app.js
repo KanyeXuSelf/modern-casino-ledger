@@ -1,13 +1,29 @@
 import { createAuthModule } from "./modules/auth.js";
 import { createSyncModule } from "./modules/sync.js";
 import { createRenderModule } from "./modules/render.js";
+import { createWorkbookDemoState } from "./modules/demo.js";
 
-const STORAGE_KEY = "poker-ledger-v3";
-const CLIENT_ID_KEY = "poker-ledger-client-id";
+const DEFAULT_STORAGE_KEY = "poker-ledger-v3";
+const DEFAULT_CLIENT_ID_KEY = "poker-ledger-client-id";
 const DEFAULT_SYNC_TEXT = "当前仅保存在本机浏览器。";
-const config = normalizeConfig(window.POKER_LEDGER_CONFIG || {});
+const TRASH_RETENTION_MS = 24 * 60 * 60 * 1000;
 const urlParams = new URLSearchParams(window.location.search);
 const shareToken = urlParams.get("share") || "";
+const demoMode = urlParams.get("demo") || "";
+const sandboxId = normalizeSandboxId(urlParams.get("sandbox") || "");
+const config = normalizeConfig(window.POKER_LEDGER_CONFIG || {});
+const isLocalDemoHost = ["127.0.0.1", "localhost"].includes(window.location.hostname) || window.location.protocol === "file:";
+const STORAGE_KEY = sandboxId ? `${DEFAULT_STORAGE_KEY}:sandbox:${sandboxId}` : DEFAULT_STORAGE_KEY;
+const CLIENT_ID_KEY = sandboxId ? `${DEFAULT_CLIENT_ID_KEY}:sandbox:${sandboxId}` : DEFAULT_CLIENT_ID_KEY;
+
+if (sandboxId) {
+  config.syncProvider = "local";
+  config.siteTitle = `${config.siteTitle} Sandbox`;
+}
+
+if (isLocalDemoHost && demoMode === "workbook") {
+  config.syncProvider = "local";
+}
 
 const state = loadState();
 const authContext = {
@@ -94,6 +110,7 @@ const elements = {
   profitSummaryCards: document.querySelector("#profitSummaryCards"),
   partnerFinalTable: document.querySelector("#partnerFinalTable"),
   sessionList: document.querySelector("#sessionList"),
+  trashList: document.querySelector("#trashList"),
   historySettlementFilter: document.querySelector("#historySettlementFilter"),
   overviewGrid: document.querySelector("#overviewGrid"),
   debtSummary: document.querySelector("#debtSummary"),
@@ -153,6 +170,8 @@ const elements = {
 let activeHistorySessionId = "";
 let activeHistorySessionMode = "settlement";
 let activeHistorySettlementPlayerKey = "";
+let activeHistoryDetailPlayerKey = "";
+let activeHistoryPartnerKey = "";
 let activeCashoutPlayerId = "";
 
 const runtime = {
@@ -202,12 +221,14 @@ if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
     elements,
     render,
     saveState,
+    runSelfCheckLoop,
   };
 }
 
 init();
 
 async function init() {
+  maybeLoadLocalDemoState();
   ensureDraftSession();
   bindEvents();
   setSessionInfoCollapsed(window.matchMedia("(max-width: 720px)").matches);
@@ -217,6 +238,14 @@ async function init() {
     return;
   }
   await initializeSync();
+}
+
+function maybeLoadLocalDemoState() {
+  if (!isLocalDemoHost || demoMode !== "workbook") return;
+  const demoState = normalizeRootState(createWorkbookDemoState());
+  Object.keys(state).forEach((key) => delete state[key]);
+  Object.assign(state, demoState);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 function bindEvents() {
@@ -396,6 +425,8 @@ function bindEvents() {
   elements.historySettlementFilter?.addEventListener("change", renderHistory);
   elements.sessionList.addEventListener("click", handleHistoryActions);
   elements.historySessionDetail.addEventListener("click", handleHistorySessionActions);
+  elements.debtSummary?.addEventListener("change", handleDebtSummaryInteractions);
+  elements.debtSummary?.addEventListener("click", handleDebtSummaryInteractions);
   elements.mergePlayersBtn?.addEventListener("click", mergePlayers);
   elements.mergeSourcePlayerSelect?.addEventListener("change", () => {
     const selected = state.players.find((player) => player.id === elements.mergeSourcePlayerSelect.value);
@@ -500,6 +531,7 @@ function createDraftPlayer() {
     pausedForSettlement: false,
     settlementStatus: "pending",
     settledAmount: 0,
+    coverAmount: 0,
     remainingAmount: 0,
     partnerName: "",
   };
@@ -538,9 +570,17 @@ function ensureDraftSession() {
     activeView: state.ui?.activeView || "home",
     expandedPlayerId: state.ui?.expandedPlayerId || "",
     expandedHistorySettlementPlayerKey: state.ui?.expandedHistorySettlementPlayerKey || "",
+    statsTab: state.ui?.statsTab || "overview",
+    leaderboardPage: Math.max(Number(state.ui?.leaderboardPage) || 1, 1),
+    debtDateFilter: String(state.ui?.debtDateFilter || "all"),
+    debtDateStart: String(state.ui?.debtDateStart || ""),
+    debtDateEnd: String(state.ui?.debtDateEnd || ""),
+    debtSessionFilter: String(state.ui?.debtSessionFilter || "all"),
   };
   state.draftSession = normalizeDraftSession(state.draftSession);
   state.sessions = Array.isArray(state.sessions) ? state.sessions.map(normalizeSession) : [];
+  state.deletedSessions = Array.isArray(state.deletedSessions) ? state.deletedSessions.map(normalizeDeletedSessionEntry).filter(Boolean) : [];
+  purgeExpiredDeletedSessions();
   state.players = Array.isArray(state.players)
     ? state.players
         .map((player) => ({ ...player, id: player.id || crypto.randomUUID(), name: String(player.name || "").trim() }))
@@ -592,6 +632,7 @@ function normalizeDraftPlayer(player) {
     pausedForSettlement: Boolean(player.pausedForSettlement),
     settlementStatus: ["pending", "partial", "settled"].includes(player.settlementStatus) ? player.settlementStatus : "pending",
     settledAmount: toNumber(player.settledAmount),
+    coverAmount: toNumber(player.coverAmount),
     remainingAmount: toNumber(player.remainingAmount),
     partnerName: String(player.partnerName || "").trim(),
   };
@@ -616,6 +657,7 @@ function normalizeSession(session) {
     collaborationSharePercent: toNumber(session.collaborationSharePercent),
     totalBuyIn: toNumber(session.totalBuyIn),
     totalCashOut: toNumber(session.totalCashOut),
+    totalCover: toNumber(session.totalCover),
     totalCosts: toNumber(session.totalCosts),
     netProfit: toNumber(session.netProfit),
     players: Array.isArray(session.players)
@@ -624,7 +666,9 @@ function normalizeSession(session) {
           cashOut: toNumber(player.cashOut),
           profit: toNumber(player.profit),
           settledAmount: toNumber(player.settledAmount),
+          coverAmount: toNumber(player.coverAmount),
           remainingAmount: toNumber(player.remainingAmount),
+          debtTrackerBaselineSettledAmount: toNumber(player.debtTrackerBaselineSettledAmount),
         }))
       : [],
     partners: Array.isArray(session.partners)
@@ -643,6 +687,19 @@ function normalizeSession(session) {
   return recomputeSavedSession(normalized);
 }
 
+function normalizeDeletedSessionEntry(entry) {
+  if (!entry?.session) return null;
+  const deletedAt = String(entry.deletedAt || "");
+  const restoreBefore = entry.restoreBefore || (deletedAt ? new Date(new Date(deletedAt).getTime() + TRASH_RETENTION_MS).toISOString() : "");
+  if (!restoreBefore || new Date(restoreBefore).getTime() <= Date.now()) return null;
+  return {
+    id: entry.id || entry.session.id || crypto.randomUUID(),
+    deletedAt,
+    restoreBefore,
+    session: normalizeSession(entry.session),
+  };
+}
+
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
@@ -656,6 +713,7 @@ function loadState() {
 }
 
 function saveState(options = {}) {
+  purgeExpiredDeletedSessions();
   if (!options.skipTouch) {
     touchState();
   }
@@ -667,9 +725,20 @@ function saveState(options = {}) {
 
 function createEmptyState() {
   return normalizeRootState({
-    ui: { activeView: "home", expandedPlayerId: "", expandedHistorySettlementPlayerKey: "" },
+    ui: {
+      activeView: "home",
+      expandedPlayerId: "",
+      expandedHistorySettlementPlayerKey: "",
+      statsTab: "overview",
+      leaderboardPage: 1,
+      debtDateFilter: "all",
+      debtDateStart: "",
+      debtDateEnd: "",
+      debtSessionFilter: "all",
+    },
     draftSession: createDefaultDraftSession(),
     sessions: [],
+    deletedSessions: [],
     players: [],
     meta: { revision: 0, updatedAt: "", updatedBy: "" },
   });
@@ -683,9 +752,14 @@ function normalizeRootState(raw) {
       expandedHistorySettlementPlayerKey: raw?.ui?.expandedHistorySettlementPlayerKey || "",
       statsTab: raw?.ui?.statsTab || "overview",
       leaderboardPage: Math.max(Number(raw?.ui?.leaderboardPage) || 1, 1),
+      debtDateFilter: String(raw?.ui?.debtDateFilter || "all"),
+      debtDateStart: String(raw?.ui?.debtDateStart || ""),
+      debtDateEnd: String(raw?.ui?.debtDateEnd || ""),
+      debtSessionFilter: String(raw?.ui?.debtSessionFilter || "all"),
     },
     draftSession: raw?.draftSession || createDefaultDraftSession(),
     sessions: Array.isArray(raw?.sessions) ? raw.sessions : [],
+    deletedSessions: Array.isArray(raw?.deletedSessions) ? raw.deletedSessions : [],
     players: Array.isArray(raw?.players) ? raw.players : [],
     meta: normalizeMeta(raw?.meta),
   };
@@ -807,6 +881,14 @@ function normalizeConfig(raw) {
   };
 }
 
+function normalizeSandboxId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function getOrCreateClientId() {
   const existing = localStorage.getItem(CLIENT_ID_KEY);
   if (existing) return existing;
@@ -864,6 +946,7 @@ function renderPlayerRows() {
     const playtimeDisplay = fragment.querySelector(".player-playtime");
     const partnerSelect = fragment.querySelector(".player-partner-select");
     const settledAmountInput = fragment.querySelector(".player-settled-amount");
+    const coverAmountInput = fragment.querySelector(".player-cover-amount");
     const removeBtn = fragment.querySelector(".remove-player");
     const settlementFields = fragment.querySelectorAll(".settlement-fields");
     const liveGrid = fragment.querySelector(".player-live-grid");
@@ -877,6 +960,7 @@ function renderPlayerRows() {
     const resumeBtn = fragment.querySelector(".resume-player");
     const article = fragment.querySelector(".player-row");
     const playerCashOutTotal = getPlayerCashOutTotal(player);
+    const cashoutHistory = fragment.querySelector(".cashout-history");
 
     nameInput.value = player.name;
     buyinTotal.textContent = formatCurrency(getPlayerBuyInTotal(player));
@@ -884,6 +968,7 @@ function renderPlayerRows() {
     playtimeDisplay.textContent = formatDuration(getPlayerPlayMs(player));
     liveCashoutInput.value = "";
     settledAmountInput.value = player.settledAmount;
+    coverAmountInput.value = player.coverAmount || 0;
     partnerSelect.innerHTML = `${partnerOptions
       .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
       .join("")}`;
@@ -893,6 +978,7 @@ function renderPlayerRows() {
     const settlementMode = state.draftSession.stage === "settlement";
     const playerBuyinTotal = getPlayerBuyInTotal(player);
     const playerProfit = getPlayerProfit(player);
+    coverAmountInput.disabled = playerProfit >= 0;
     if (player.cashOutRecorded) {
       summaryBuyinInline.textContent = formatCurrency(playerProfit);
       summaryBuyinInline.className = `player-summary-inline-buyin player-summary-inline-profit ${playerProfit >= 0 ? "positive" : "negative"}`;
@@ -936,6 +1022,15 @@ function renderPlayerRows() {
           .join("")
       : `<span class="empty-inline">还没有 buyin / rebuy 记录</span>`;
     buyinHistory.hidden = settlementMode;
+    cashoutHistory.innerHTML = player.cashOuts?.length
+      ? player.cashOuts
+          .map(
+            (amount, cashoutIndex) =>
+              `<button class="buyin-chip" data-cashout-index="${cashoutIndex}" type="button">${formatCurrency(amount)} <span>撤销 Cash Out</span></button>`
+          )
+          .join("")
+      : "";
+    cashoutHistory.hidden = !(player.cashOuts?.length);
 
     const handlePlayerIdentityInput = () => {
       player.name = nameInput.value.trim();
@@ -976,6 +1071,13 @@ function renderPlayerRows() {
     buyinHistory.querySelectorAll(".buyin-chip").forEach((button) => {
       button.addEventListener("click", () => {
         player.buyIns.splice(Number(button.dataset.chipIndex), 1);
+        saveState();
+        render();
+      });
+    });
+    cashoutHistory.querySelectorAll("[data-cashout-index]").forEach((button) => {
+      button.addEventListener("click", () => {
+        removeDraftCashoutEntry(player, Number(button.dataset.cashoutIndex));
         saveState();
         render();
       });
@@ -1025,9 +1127,11 @@ function renderPlayerRows() {
     const syncSettlementDraft = () => {
       const profit = getPlayerProfit(player);
       const settledAmount = Math.max(toNumber(settledAmountInput.value), 0);
-      const obligation = Math.abs(profit);
+      const coverAmount = profit < 0 ? Math.min(Math.max(toNumber(coverAmountInput.value), 0), Math.abs(profit)) : 0;
+      const obligation = getSettlementObligation({ ...player, coverAmount }, profit);
       player.partnerName = partnerSelect.value || defaultPartnerName;
       player.settledAmount = settledAmount;
+      player.coverAmount = coverAmount;
       player.remainingAmount = obligation > 0 ? Math.max(obligation - settledAmount, 0) : 0;
       player.settlementStatus =
         obligation <= 0.009
@@ -1049,6 +1153,15 @@ function renderPlayerRows() {
       render();
     });
     partnerSelect.addEventListener("change", () => {
+      syncSettlementDraft();
+      saveState();
+      render();
+    });
+    coverAmountInput.addEventListener("input", () => {
+      syncSettlementDraft();
+      saveState();
+    });
+    coverAmountInput.addEventListener("change", () => {
       syncSettlementDraft();
       saveState();
       render();
@@ -1310,6 +1423,7 @@ function renderFinancials() {
   elements.profitSummaryCards.innerHTML = [
     metricCard("总 Buyin", formatCurrency(summary.totalBuyIn)),
     metricCard("总 Cash Out", finalReady ? formatCurrency(summary.totalCashOut) : "待牌局结束"),
+    metricCard("总 Cover", formatCurrency(summary.totalCover)),
     metricCard("所有成本", formatCurrency(summary.totalCosts)),
     metricCard("净利润", finalReady ? formatCurrency(summary.netProfit) : "待所有 Cash Out", finalReady ? summary.netProfit >= 0 : null),
     metricCard(
@@ -1368,7 +1482,8 @@ function computeDraftSummary() {
   const totalCashOut = sum(players.map((player) => player.cashOut));
   const totalBuyInCount = sum(players.map((player) => player.buyIns.length));
   const partnerCosts = sum(partners.map((partner) => partner.cost));
-  const totalCosts = state.draftSession.dealerFee + partnerCosts;
+  const totalCover = sum(players.map(getPlayerCoverAmount));
+  const totalCosts = state.draftSession.dealerFee + partnerCosts + totalCover;
   const netProfit = totalBuyIn - totalCashOut - totalCosts;
   const dealerShareAmount = state.draftSession.dealerShareEnabled === "Yes" ? netProfit * (state.draftSession.dealerSharePercent / 100) : 0;
   const collaborationShareAmount = netProfit * (state.draftSession.collaborationSharePercent / 100);
@@ -1400,6 +1515,7 @@ function computeDraftSummary() {
     totalBuyIn,
     totalCashOut,
     totalBuyInCount,
+    totalCover,
     totalCosts,
     netProfit,
     modernNetProfit,
@@ -1459,6 +1575,16 @@ function getPlayerProfit(player) {
   return getPlayerCashOutTotal(player) + player.insuranceProfit - getPlayerBuyInTotal(player);
 }
 
+function getPlayerCoverAmount(player) {
+  return Math.max(toNumber(player.coverAmount), 0);
+}
+
+function getSettlementObligation(player, profit = toNumber(player.profit ?? getPlayerProfit(player))) {
+  if (profit > 0) return Math.max(profit, 0);
+  if (profit < 0) return Math.max(Math.abs(profit) - getPlayerCoverAmount(player), 0);
+  return 0;
+}
+
 function getModernPartnerNamesFromSession(session) {
   return (session?.partners || [])
     .map((partner) => String(partner.name || "").trim())
@@ -1468,9 +1594,7 @@ function getModernPartnerNamesFromSession(session) {
 function getPlayerOutstandingAmount(player) {
   const profit = toNumber(player.profit ?? getPlayerProfit(player));
   const settledAmount = Math.max(toNumber(player.settledAmount), 0);
-  if (profit > 0) return Math.max(profit - settledAmount, 0);
-  if (profit < 0) return Math.max(toNumber(player.remainingAmount), 0);
-  return 0;
+  return Math.max(getSettlementObligation(player, profit) - settledAmount, 0);
 }
 
 function isPlayerSettlementComplete(player) {
@@ -1517,7 +1641,8 @@ function recomputeSavedSession(session) {
   const totalBuyIn = sum(players.map((player) => toNumber(player.totalBuyIn)));
   const totalCashOut = sum(players.map((player) => toNumber(player.cashOut)));
   const partnerCosts = sum(partners.map((partner) => toNumber(partner.cost)));
-  const totalCosts = toNumber(session.dealerFee) + partnerCosts;
+  const totalCover = sum(players.map((player) => getPlayerCoverAmount(player)));
+  const totalCosts = toNumber(session.dealerFee) + partnerCosts + totalCover;
   const netProfit = totalBuyIn - totalCashOut - totalCosts;
   const dealerShareAmount = session.dealerShareEnabled === "Yes" ? netProfit * (toNumber(session.dealerSharePercent) / 100) : 0;
   const collaborationShareAmount = netProfit * (toNumber(session.collaborationSharePercent) / 100);
@@ -1544,6 +1669,7 @@ function recomputeSavedSession(session) {
     ...session,
     totalBuyIn,
     totalCashOut,
+    totalCover,
     totalCosts,
     netProfit,
     modernNetProfit,
@@ -1610,6 +1736,7 @@ function saveSession() {
     dealerFee: state.draftSession.dealerFee,
     totalBuyIn: summary.totalBuyIn,
     totalCashOut: summary.totalCashOut,
+    totalCover: summary.totalCover,
     totalCosts: summary.totalCosts,
     netProfit: summary.netProfit,
     players: summary.players.map((player) => ({
@@ -1625,6 +1752,7 @@ function saveSession() {
       playMs: getPlayerPlayMs(player),
       settlementStatus: player.settlementStatus,
       settledAmount: player.settledAmount,
+      coverAmount: player.coverAmount,
       remainingAmount: player.remainingAmount,
       partnerName: player.partnerName,
     })),
@@ -1693,6 +1821,19 @@ function recordPlayerCashout(player, amount) {
   exitPlayer(player);
 }
 
+function removeDraftCashoutEntry(player, cashoutIndex) {
+  if (!Array.isArray(player.cashOuts)) return;
+  player.cashOuts.splice(cashoutIndex, 1);
+  player.cashOut = sum(player.cashOuts);
+  player.cashOutRecorded = player.cashOuts.length > 0;
+  if (!player.cashOutRecorded) {
+    player.exited = false;
+    player.endedAt = "";
+    player.pausedForSettlement = false;
+    if (!player.startedAt) player.startedAt = new Date().toISOString();
+  }
+}
+
 function exitPlayer(player) {
   const nowIso = new Date().toISOString();
   if (!player.startedAt) player.startedAt = nowIso;
@@ -1756,6 +1897,10 @@ function formatSetupDate(value) {
   return String(value || "").replace("T", " ");
 }
 
+function formatShortDate(value) {
+  return String(value || "").replaceAll("-", "/").slice(5);
+}
+
 function formatPercent(value) {
   return `${toNumber(value).toFixed(2)}%`;
 }
@@ -1776,6 +1921,7 @@ function isDefaultModernPartner(partner) {
 }
 
 function renderHistory() {
+  purgeExpiredDeletedSessions();
   const cards = [];
   const filter = elements.historySettlementFilter?.value || "all";
   const unsettledSessions = [];
@@ -1802,6 +1948,7 @@ function renderHistory() {
 
   if (!state.sessions.length && !cards.length) {
     elements.sessionList.innerHTML = `<div class="empty-state">暂无往期账单。</div>`;
+    renderTrashBin();
     return;
   }
 
@@ -1810,17 +1957,21 @@ function renderHistory() {
     if (filter === "settled" && !settled) return;
     if (filter === "unsettled" && settled) return;
     const card = `
-      <article class="session-item session-item-compact">
-        <div class="session-item-top session-item-top-compact dense-history-row">
-          <button class="dense-history-main" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">
-            <strong>${escapeHtml(session.name)}</strong>
-            <span class="session-item-meta">${escapeHtml(formatSetupDate(session.date))} · ${escapeHtml(session.location || "未填写地点")}</span>
-          </button>
-          <div class="toolbar wrap compact-row-actions dense-history-actions">
-            <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
-            <strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
-            <button class="ghost-button compact-action-button dense-action-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结</button>
-            <button class="ghost-button danger-button compact-action-button dense-action-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删</button>
+      <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
+        <div class="swipe-delete-action">
+          <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>
+        </div>
+        <div class="swipe-delete-track">
+          <div class="session-item-top session-item-top-compact dense-history-row history-session-row">
+            <button class="dense-history-main history-session-chip history-session-primary" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">
+              <span class="history-chip-title">${escapeHtml(formatSetupDate(session.date))}</span>
+              <span class="history-chip-meta">${escapeHtml(session.location || "未填写地点")}</span>
+            </button>
+            <strong class="history-session-profit history-session-profit-core ${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
+            <div class="history-session-side">
+              <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
+              <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账</button>
+            </div>
           </div>
         </div>
       </article>
@@ -1840,10 +1991,11 @@ function renderHistory() {
 
   if (!cards.length) {
     elements.sessionList.innerHTML = `<div class="empty-state">当前筛选下暂无账单。</div>`;
-    return;
+  } else {
+    elements.sessionList.innerHTML = cards.join("");
   }
-
-  elements.sessionList.innerHTML = cards.join("");
+  renderTrashBin();
+  bindSwipeDeleteInteractions(elements.sessionList);
 }
 
 function hasDraftActivity() {
@@ -1895,22 +2047,30 @@ function handleHistoryActions(event) {
   }
   const button = event.target.closest("[data-history-action]");
   if (!button) return;
-  if (button.dataset.historyAction === "open-draft") {
-    state.ui.activeView = "accounting";
-    saveState();
-    render();
-  }
-  if (button.dataset.historyAction === "open-session") {
-    openHistorySessionModal(button.dataset.sessionId, "settlement");
-  }
-  if (button.dataset.historyAction === "open-session-detail") {
-    openHistorySessionModal(button.dataset.sessionId, "detail");
-  }
-  if (button.dataset.historyAction === "open-session-settlement") {
-    openHistorySessionModal(button.dataset.sessionId, "settlement");
-  }
-  if (button.dataset.historyAction === "delete-session") {
-    deleteSession(button.dataset.sessionId);
+  switch (button.dataset.historyAction) {
+    case "open-draft":
+      state.ui.activeView = "accounting";
+      saveState();
+      render();
+      return;
+    case "open-session":
+    case "open-session-settlement":
+      openHistorySessionModal(button.dataset.sessionId, "settlement");
+      return;
+    case "open-session-detail":
+      openHistorySessionModal(button.dataset.sessionId, "detail");
+      return;
+    case "delete-session":
+      deleteSession(button.dataset.sessionId);
+      return;
+    case "restore-session":
+      restoreSessionFromTrash(button.dataset.sessionId);
+      return;
+    case "purge-session":
+      purgeSessionFromTrash(button.dataset.sessionId);
+      return;
+    default:
+      return;
   }
 }
 
@@ -1926,20 +2086,301 @@ function handleHistorySessionActions(event) {
     const session = state.sessions.find((item) => item.id === activeHistorySessionId);
     if (session) openHistorySessionModal(session.id, "settlement");
   }
+  if (button.dataset.historyAction === "toggle-history-detail-player") {
+    const playerKey = button.dataset.playerKey || "";
+    activeHistoryDetailPlayerKey = activeHistoryDetailPlayerKey === playerKey ? "" : playerKey;
+    const session = state.sessions.find((item) => item.id === activeHistorySessionId);
+    if (session) openHistorySessionModal(session.id, "detail");
+  }
+  if (button.dataset.historyAction === "toggle-history-partner") {
+    const partnerKey = button.dataset.partnerKey || "";
+    activeHistoryPartnerKey = activeHistoryPartnerKey === partnerKey ? "" : partnerKey;
+    const session = state.sessions.find((item) => item.id === activeHistorySessionId);
+    if (session) openHistorySessionModal(session.id, "detail");
+  }
+  if (button.dataset.historyAction === "delete-history-player") {
+    deleteHistorySessionPlayer(button.dataset.sessionId, Number(button.dataset.playerIndex));
+  }
+  if (button.dataset.historyAction === "delete-history-partner") {
+    deleteHistorySessionPartner(button.dataset.sessionId, Number(button.dataset.partnerIndex));
+  }
+}
+
+function bindSwipeDeleteInteractions(container) {
+  if (!container) return;
+  container.querySelectorAll("[data-swipe-delete]").forEach((card) => {
+    if (card.dataset.swipeBound === "true") return;
+    card.dataset.swipeBound = "true";
+    card.dataset.swipeOpen = "false";
+    const track = card.querySelector(".swipe-delete-track");
+    const action = card.querySelector(".swipe-delete-action");
+    if (!track) return;
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let dragging = false;
+    let moved = false;
+    let swiping = false;
+    let activePointerId = null;
+    let startedOpen = false;
+
+    const getSwipeWidth = () => Math.max(action?.offsetWidth || 0, 88);
+
+    const setOffset = (value, immediate = false) => {
+      const swipeWidth = getSwipeWidth();
+      const bounded = Math.max(-swipeWidth, Math.min(0, value));
+      card.classList.toggle("is-swiping", immediate);
+      card.style.setProperty("--swipe-offset", `${bounded}px`);
+      if (!immediate) {
+        card.dataset.swipeOpen = bounded <= -swipeWidth * 0.72 ? "true" : "false";
+      }
+    };
+
+    const closeOthers = () => {
+      container.querySelectorAll("[data-swipe-delete]").forEach((item) => {
+        if (item === card) return;
+        item.style.setProperty("--swipe-offset", "0px");
+        item.dataset.swipeOpen = "false";
+        item.classList.remove("is-swiping");
+      });
+    };
+
+    const openCard = () => {
+      card.classList.remove("is-swiping");
+      card.style.setProperty("--swipe-offset", `${-getSwipeWidth()}px`);
+      card.dataset.swipeOpen = "true";
+    };
+
+    const closeCard = () => {
+      card.classList.remove("is-swiping");
+      card.style.setProperty("--swipe-offset", "0px");
+      card.dataset.swipeOpen = "false";
+    };
+
+    track.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".swipe-delete-button")) return;
+      if (event.target.closest("input, select, textarea")) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      currentX = Number(card.style.getPropertyValue("--swipe-offset").replace("px", "")) || 0;
+      startedOpen = card.dataset.swipeOpen === "true";
+      dragging = true;
+      moved = false;
+      swiping = false;
+      activePointerId = event.pointerId;
+      closeOthers();
+      track.setPointerCapture?.(event.pointerId);
+    });
+
+    track.addEventListener("pointermove", (event) => {
+      if (!dragging || (activePointerId !== null && event.pointerId !== activePointerId)) return;
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+      if (!swiping) {
+        if (Math.abs(deltaY) > Math.abs(deltaX) + 8) {
+          dragging = false;
+          card.classList.remove("is-swiping");
+          return;
+        }
+        if (Math.abs(deltaX) < 6) return;
+        swiping = true;
+      }
+      moved = true;
+      event.preventDefault();
+      setOffset(currentX + deltaX, true);
+    });
+
+    const finishSwipe = (event) => {
+      if (!dragging || (activePointerId !== null && event.pointerId !== activePointerId)) return;
+      dragging = false;
+      activePointerId = null;
+      card.classList.remove("is-swiping");
+      const deltaX = event.clientX - startX;
+      const finalOffset = Number(card.style.getPropertyValue("--swipe-offset").replace("px", "")) || 0;
+      const swipeWidth = getSwipeWidth();
+      if (!moved || !swiping) {
+        if (card.dataset.swipeOpen === "true") {
+          openCard();
+        } else {
+          closeCard();
+        }
+        return;
+      }
+      const openThreshold = Math.min(22, swipeWidth * 0.25);
+      const closeThreshold = Math.min(18, swipeWidth * 0.2);
+      if (startedOpen) {
+        if (deltaX >= closeThreshold || finalOffset >= -swipeWidth * 0.35) {
+          closeCard();
+        } else {
+          openCard();
+        }
+      } else if (deltaX <= -openThreshold || finalOffset <= -swipeWidth * 0.2) {
+        openCard();
+      } else {
+        closeCard();
+      }
+    };
+
+    track.addEventListener("pointerup", finishSwipe);
+    track.addEventListener("pointercancel", finishSwipe);
+    track.addEventListener(
+      "touchstart",
+      (event) => {
+        const touch = event.touches?.[0];
+        if (!touch) return;
+        if (event.target.closest(".swipe-delete-button")) return;
+        if (event.target.closest("input, select, textarea")) return;
+        startX = touch.clientX;
+        startY = touch.clientY;
+        currentX = Number(card.style.getPropertyValue("--swipe-offset").replace("px", "")) || 0;
+        startedOpen = card.dataset.swipeOpen === "true";
+        dragging = true;
+        moved = false;
+        swiping = false;
+        activePointerId = "touch";
+        closeOthers();
+      },
+      { passive: true }
+    );
+    track.addEventListener(
+      "touchmove",
+      (event) => {
+        if (!dragging || activePointerId !== "touch") return;
+        const touch = event.touches?.[0];
+        if (!touch) return;
+        const deltaX = touch.clientX - startX;
+        const deltaY = touch.clientY - startY;
+        if (!swiping) {
+          if (Math.abs(deltaY) > Math.abs(deltaX) + 8) {
+            dragging = false;
+            activePointerId = null;
+            card.classList.remove("is-swiping");
+            return;
+          }
+          if (Math.abs(deltaX) < 6) return;
+          swiping = true;
+        }
+        moved = true;
+        event.preventDefault();
+        setOffset(currentX + deltaX, true);
+      },
+      { passive: false }
+    );
+    track.addEventListener(
+      "touchend",
+      (event) => {
+        if (!dragging || activePointerId !== "touch") return;
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        finishSwipe({ clientX: touch.clientX, clientY: touch.clientY, pointerId: "touch" });
+      },
+      { passive: true }
+    );
+    track.addEventListener("click", (event) => {
+      if (card.dataset.swipeOpen === "true" && !event.target.closest(".swipe-delete-button")) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCard();
+      }
+    });
+  });
 }
 
 function deleteSession(sessionId) {
   const session = state.sessions.find((item) => item.id === sessionId);
   if (!session) return;
-  if (!window.confirm(`确认删除账单“${session.name}”吗？此操作不可撤回。`)) return;
+  if (!window.confirm(`确认把账单“${session.name}”移入垃圾箱吗？24 小时内可恢复。`)) return;
+  moveSessionToTrash(sessionId);
+}
+
+function moveSessionToTrash(sessionId, options = {}) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) return false;
+  const deletedAt = new Date().toISOString();
+  const restoreBefore = new Date(Date.now() + TRASH_RETENTION_MS).toISOString();
+  state.deletedSessions.unshift({
+    id: session.id,
+    deletedAt,
+    restoreBefore,
+    session: cloneState(session),
+  });
   state.sessions = state.sessions.filter((item) => item.id !== sessionId);
   if (activeHistorySessionId === sessionId && elements.historySessionModal.open) {
     elements.historySessionModal.close();
     activeHistorySessionId = "";
     activeHistorySettlementPlayerKey = "";
   }
-  saveState();
-  render();
+  if (!options.skipPersist) {
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function restoreSessionFromTrash(sessionId, options = {}) {
+  const entryIndex = state.deletedSessions.findIndex((item) => item.id === sessionId);
+  if (entryIndex < 0) return false;
+  const [entry] = state.deletedSessions.splice(entryIndex, 1);
+  state.sessions.unshift(normalizeSession(entry.session));
+  if (!options.skipPersist) {
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function purgeSessionFromTrash(sessionId, options = {}) {
+  const entry = state.deletedSessions.find((item) => item.id === sessionId);
+  if (!entry) return false;
+  if (!options.skipConfirm && !window.confirm(`确认彻底删除账单“${entry.session.name}”吗？此操作不可恢复。`)) return false;
+  state.deletedSessions = state.deletedSessions.filter((item) => item.id !== sessionId);
+  if (!options.skipPersist) {
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function purgeExpiredDeletedSessions() {
+  const before = state.deletedSessions?.length || 0;
+  state.deletedSessions = (state.deletedSessions || []).filter((entry) => {
+    const deadline = new Date(entry.restoreBefore).getTime();
+    return Number.isFinite(deadline) && deadline > Date.now();
+  });
+  return before !== state.deletedSessions.length;
+}
+
+function renderTrashBin() {
+  if (!elements.trashList) return;
+  if (!state.deletedSessions.length) {
+    elements.trashList.innerHTML = `<div class="empty-state">暂无可恢复账单。</div>`;
+    return;
+  }
+  elements.trashList.innerHTML = state.deletedSessions
+    .map((entry) => {
+      const expiresInMs = Math.max(new Date(entry.restoreBefore).getTime() - Date.now(), 0);
+      return `
+        <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
+          <div class="swipe-delete-action">
+            <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="purge-session" data-session-id="${entry.id}">彻底删</button>
+          </div>
+          <div class="swipe-delete-track">
+            <div class="session-item-top session-item-top-compact dense-history-row history-session-row history-trash-row">
+              <div class="dense-history-main history-session-chip">
+                <span class="history-chip-title">${escapeHtml(entry.session.name)}</span>
+                <span class="history-chip-meta">${escapeHtml(formatSetupDate(entry.session.date))} · ${escapeHtml(entry.session.location || "未填写地点")}</span>
+              </div>
+              <div class="history-session-side history-trash-side">
+                <span class="session-item-meta">剩余 ${formatDuration(expiresInMs)}</span>
+                <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="restore-session" data-session-id="${entry.id}">恢复</button>
+              </div>
+            </div>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+  bindSwipeDeleteInteractions(elements.trashList);
 }
 
 function renderStats() {
@@ -1994,18 +2435,10 @@ function renderOverview() {
 }
 
 function renderDebtSummary() {
-  const debtMap = new Map();
-  state.sessions.forEach((session) => {
-    session.players.forEach((player) => {
-      const debt = toNumber(player.remainingAmount);
-      const profit = toNumber(player.profit);
-      if (debt <= 0 || profit > 0) return;
-      const current = debtMap.get(player.name) || 0;
-      debtMap.set(player.name, current + debt);
-    });
-  });
+  const debtSessions = getDebtSessions();
+  const debtMap = getOutstandingDebtMap();
 
-  if (!debtMap.size) {
+  if (!debtMap.size && !debtSessions.length) {
     elements.debtSummary.className = "player-insight empty-state";
     elements.debtSummary.innerHTML = "暂无欠款记录。";
     return;
@@ -2013,28 +2446,310 @@ function renderDebtSummary() {
 
   const debts = [...debtMap.entries()].sort((a, b) => b[1] - a[1]);
   const totalDebt = debts.reduce((sumValue, [, amount]) => sumValue + amount, 0);
+  const dateFilter = getDebtDateFilterValue();
+  const { start: dateStart, end: dateEnd } = getDebtDateRangeValue(debtSessions, dateFilter);
+  const availableSessions = getDebtSessionsByDateRange(dateStart, dateEnd);
+  const sessionFilter = getDebtSessionFilterValue(availableSessions);
+  const detailGroups = getDebtFilterGroups({ dateStart, dateEnd, sessionFilter });
+
   elements.debtSummary.className = "player-insight";
   elements.debtSummary.innerHTML = `
-    <div class="insight-grid">
+    <div class="insight-grid debt-overview-grid">
       ${metricCard("欠款人数", `${debts.length}`)}
       ${metricCard("累计欠款", formatCurrencyAbs(totalDebt), false)}
     </div>
-    <div class="partner-final-table">
-      ${debts
-        .map(
-          ([name, amount]) => `
-            <article class="leaderboard-row">
-              <div>
-                <h3>${escapeHtml(name)}</h3>
-                <p>欠 Modern 集团</p>
-              </div>
-              <strong class="leaderboard-score negative">${formatCurrencyAbs(amount)}</strong>
-            </article>
-          `
-        )
-        .join("")}
-    </div>
+    <section class="debt-filter-card">
+      <div class="section-head compact">
+        <div>
+          <p class="section-kicker">Debt Filter</p>
+          <h4>按日期 / 账单查看</h4>
+        </div>
+      </div>
+      <div class="grid two debt-filter-grid">
+        <label class="debt-filter-label">
+          <span>日期范围</span>
+          <div class="debt-range-select-wrap">
+            <select data-debt-date-filter>
+              ${renderDebtDateFilterOptions(debtSessions, dateFilter)}
+            </select>
+          </div>
+        </label>
+        <label class="debt-filter-label">
+          <span>牌局筛选</span>
+          <select data-debt-session-filter>
+            ${renderDebtSessionFilterOptions(availableSessions, sessionFilter)}
+          </select>
+        </label>
+      </div>
+      <div class="partner-final-table debt-top-list">
+        ${debts
+          .map(
+            ([name, amount]) => `
+              <article class="leaderboard-row debt-top-row debt-rank-pill">
+                <strong>${escapeHtml(name)}</strong>
+                <span class="leaderboard-score negative">${formatCurrencyAbs(amount)}</span>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+      ${renderDebtFilterGroupsMarkup(detailGroups, { dateStart, dateEnd, sessionFilter })}
+    </section>
   `;
+}
+
+function handleDebtSummaryInteractions(event) {
+  const dateFilter = event.target.closest("[data-debt-date-filter]");
+  if (dateFilter) {
+    const nextValue = String(dateFilter.value || "all");
+    state.ui.debtDateFilter = nextValue;
+    const nextRange = getDebtDateRangeValue(getDebtSessions(), nextValue);
+    state.ui.debtDateStart = nextRange.start;
+    state.ui.debtDateEnd = nextRange.end;
+    state.ui.debtSessionFilter = "all";
+    saveState();
+    renderDebtSummary();
+    return;
+  }
+
+  const sessionFilter = event.target.closest("[data-debt-session-filter]");
+  if (sessionFilter) {
+    state.ui.debtSessionFilter = String(sessionFilter.value || "all");
+    saveState();
+    renderDebtSummary();
+    return;
+  }
+
+  const toggle = event.target.closest("[data-debt-clear-toggle]");
+  if (!toggle) return;
+  toggleDebtTrackerSettlement(toggle.dataset.sessionId, Number(toggle.dataset.playerIndex), Boolean(toggle.checked));
+}
+
+function getDebtDateFilterValue() {
+  const raw = String(state.ui?.debtDateFilter || "all");
+  return raw === "all" || raw.startsWith("range:") ? raw : "all";
+}
+
+function getDebtDateRangeValue(sessions, selectedValue = getDebtDateFilterValue()) {
+  const min = getDebtMinDate(sessions);
+  const max = getDebtMaxDate(sessions);
+  if (selectedValue === "all") {
+    return {
+      start: "",
+      end: "",
+    };
+  }
+  const [, rangeValue] = String(selectedValue).split(":");
+  let [start, end] = String(rangeValue || "").split("|");
+  if (start && min && start < min) start = min;
+  if (end && max && end > max) end = max;
+  if (start && end && end < start) {
+    const nextStart = end;
+    end = start;
+    start = nextStart;
+  }
+  return { start, end };
+}
+
+function getDebtDateRanges(sessions) {
+  const dates = [...new Set(sessions.map(getSessionDateKey).filter(Boolean))].sort();
+  if (!dates.length) return [];
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  const ranges = [
+    {
+      value: `range:${first}|${last}`,
+      label: `${formatShortDate(first)} - ${formatShortDate(last)}`,
+    },
+  ];
+  dates.forEach((date) => {
+    ranges.push({
+      value: `range:${date}|${date}`,
+      label: `${formatShortDate(date)} 单日`,
+    });
+  });
+  if (dates.length > 1) {
+    dates.slice(0, -1).forEach((date) => {
+      ranges.push({
+        value: `range:${date}|${last}`,
+        label: `${formatShortDate(date)} 起`,
+      });
+    });
+  }
+  return ranges.filter((range, index, array) => array.findIndex((entry) => entry.value === range.value) === index);
+}
+
+function renderDebtDateFilterOptions(sessions, selectedValue) {
+  return `
+    <option value="all" ${selectedValue === "all" ? "selected" : ""}>全部日期范围</option>
+    ${getDebtDateRanges(sessions)
+      .map(
+        (range) => `<option value="${range.value}" ${selectedValue === range.value ? "selected" : ""}>${escapeHtml(range.label)}</option>`
+      )
+      .join("")}
+  `;
+}
+
+function getDebtSessionFilterValue(availableSessions) {
+  const raw = String(state.ui?.debtSessionFilter || "all");
+  if (raw === "all") return raw;
+  return availableSessions.some((session) => session.id === raw) ? raw : "all";
+}
+
+function getOutstandingDebtMap() {
+  const debtMap = new Map();
+  state.sessions.forEach((session) => {
+    getSessionDebtPlayers(session)
+      .filter((entry) => entry.outstandingAmount > 0.009)
+      .forEach((entry) => {
+        debtMap.set(entry.player.name, (debtMap.get(entry.player.name) || 0) + entry.outstandingAmount);
+      });
+  });
+  return debtMap;
+}
+
+function getSessionDateKey(session) {
+  return String(session?.date || "").slice(0, 10) || String(session?.date || "");
+}
+
+function getSessionDebtPlayers(session) {
+  return (session?.players || [])
+    .map((player, index) => {
+      const obligation = getSettlementObligation(player, toNumber(player.profit));
+      const outstandingAmount = getPlayerOutstandingAmount(player);
+      return {
+        session,
+        player,
+        index,
+        obligation,
+        outstandingAmount,
+        isSettled: obligation > 0 && outstandingAmount <= 0.009,
+      };
+    })
+    .filter((entry) => entry.obligation > 0.009 && toNumber(entry.player.profit) < 0);
+}
+
+function getDebtSessions() {
+  return state.sessions
+    .filter((session) => getSessionDebtPlayers(session).length)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
+function getDebtMinDate(sessions) {
+  return [...new Set(sessions.map(getSessionDateKey).filter(Boolean))].sort()[0] || "";
+}
+
+function getDebtMaxDate(sessions) {
+  const dates = [...new Set(sessions.map(getSessionDateKey).filter(Boolean))].sort();
+  return dates[dates.length - 1] || "";
+}
+
+function getDebtSessionsByDateRange(start, end) {
+  if (!start && !end) return getDebtSessions();
+  return getDebtSessions().filter((session) => {
+    const dateKey = getSessionDateKey(session);
+    return (!start || dateKey >= start) && (!end || dateKey <= end);
+  });
+}
+
+function renderDebtSessionFilterOptions(sessions, selectedValue) {
+  return `
+    <option value="all" ${selectedValue === "all" ? "selected" : ""}>全部牌局</option>
+    ${sessions
+      .map(
+        (session) =>
+          `<option value="${session.id}" ${selectedValue === session.id ? "selected" : ""}>${escapeHtml(formatSetupDate(session.date))} · ${escapeHtml(session.name)}</option>`
+      )
+      .join("")}
+  `;
+}
+
+function getDebtFilterGroups({ dateStart, dateEnd, sessionFilter }) {
+  const sessions = getDebtSessionsByDateRange(dateStart, dateEnd).filter(
+    (session) => sessionFilter === "all" || session.id === sessionFilter
+  );
+
+  return sessions.map((session) => ({
+    session,
+    rows: getSessionDebtPlayers(session),
+  }));
+}
+
+function renderDebtFilterGroupsMarkup(groups, { dateStart, dateEnd, sessionFilter }) {
+  if (!groups.length) {
+    return !dateStart && !dateEnd && sessionFilter === "all"
+      ? `<div class="empty-state debt-detail-empty">先选择日期范围或牌局后，再查看欠款明细。</div>`
+      : `<div class="empty-state debt-detail-empty">当前筛选下没有待查看的欠款记录。</div>`;
+  }
+
+  return groups
+    .map(
+      ({ session, rows }) => `
+        <section class="debt-session-group">
+          <div class="debt-session-head">
+            <div>
+              <h4>${escapeHtml(session.name)}</h4>
+              <p class="session-item-meta">${escapeHtml(formatSetupDate(session.date))} · ${escapeHtml(session.location || "未填写地点")}</p>
+            </div>
+            <strong class="negative">${formatCurrencyAbs(rows.reduce((sumValue, row) => sumValue + row.outstandingAmount, 0))}</strong>
+          </div>
+          <div class="debt-player-list">
+            ${rows
+              .map(
+                (row) => `
+                  <label class="debt-player-row ${row.isSettled ? "is-settled" : ""}">
+                    <input
+                      type="checkbox"
+                      data-debt-clear-toggle
+                      data-session-id="${session.id}"
+                      data-player-index="${row.index}"
+                      ${row.isSettled ? "checked" : ""}
+                    />
+                    <div class="debt-player-copy">
+                      <strong>${escapeHtml(row.player.name || `玩家 ${row.index + 1}`)}</strong>
+                      <span>${row.isSettled ? "已清账" : "待清账"} · ${escapeHtml(settlementLabel(row.player.settlementStatus))}</span>
+                    </div>
+                    <div class="debt-player-metrics">
+                      <strong class="${row.outstandingAmount > 0.009 ? "negative" : "positive"}">${formatCurrencyAbs(row.outstandingAmount > 0.009 ? row.outstandingAmount : row.obligation)}</strong>
+                      <span>${row.outstandingAmount > 0.009 ? `剩余 ${formatCurrencyAbs(row.outstandingAmount)}` : "已结清"}</span>
+                    </div>
+                  </label>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+      `
+    )
+    .join("");
+}
+
+function toggleDebtTrackerSettlement(sessionId, playerIndex, checked) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const player = session?.players?.[playerIndex];
+  if (!session || !player) return;
+  const obligation = getSettlementObligation(player, toNumber(player.profit));
+  if (obligation <= 0.009) return;
+
+  if (checked) {
+    if (toNumber(player.debtTrackerBaselineSettledAmount) <= 0.009 && toNumber(player.settledAmount) > 0.009) {
+      player.debtTrackerBaselineSettledAmount = toNumber(player.settledAmount);
+    } else if (toNumber(player.debtTrackerBaselineSettledAmount) <= 0.009) {
+      player.debtTrackerBaselineSettledAmount = 0;
+    }
+    player.settledAmount = obligation;
+  } else {
+    player.settledAmount = Math.min(toNumber(player.debtTrackerBaselineSettledAmount), obligation);
+  }
+
+  syncSavedSessionPlayerSettlement(player);
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  if (activeHistorySessionId === session.id && elements.historySessionModal.open) {
+    openHistorySessionModal(session.id, activeHistorySessionMode);
+  }
+  renderHistory();
+  renderStats();
 }
 
 function openHistorySessionModal(sessionId, mode = "settlement") {
@@ -2043,6 +2758,10 @@ function openHistorySessionModal(sessionId, mode = "settlement") {
   activeHistorySessionId = sessionId;
   activeHistorySessionMode = mode;
   activeHistorySettlementPlayerKey = state.ui.expandedHistorySettlementPlayerKey || "";
+  if (mode === "settlement") {
+    activeHistoryDetailPlayerKey = "";
+    activeHistoryPartnerKey = "";
+  }
   const partnerNames = getModernPartnerNamesFromSession(session);
   const settled = isSessionSettled(session);
   elements.historySessionModalTitle.textContent = mode === "detail" ? `${session.name} 详情` : `${session.name} 结账记录`;
@@ -2057,10 +2776,14 @@ function openHistorySessionModal(sessionId, mode = "settlement") {
       field.addEventListener("change", updateHistorySessionPlayerField);
     });
   } else {
+    elements.historySessionDetail.querySelectorAll("[data-history-session-field]").forEach((field) => {
+      field.addEventListener("change", updateHistorySessionMetaField);
+    });
     elements.historySessionDetail.querySelectorAll("[data-history-partner-field]").forEach((field) => {
       field.addEventListener("change", updateHistorySessionPartnerField);
     });
   }
+  bindSwipeDeleteInteractions(elements.historySessionDetail);
   if (!elements.historySessionModal.open) {
     elements.historySessionModal.showModal();
   }
@@ -2076,18 +2799,24 @@ function updateHistorySessionPlayerField(event) {
     const partnerName = String(event.target.value || "").trim();
     player.partnerName = partnerName && partnerNames.includes(partnerName) ? partnerName : "";
   } else {
-    player[field] = ["settledAmount", "remainingAmount"].includes(field) ? toNumber(event.target.value) : event.target.value;
+    player[field] = ["settledAmount", "remainingAmount", "coverAmount"].includes(field) ? toNumber(event.target.value) : event.target.value;
   }
-  const profit = toNumber(player.profit);
-  if (profit > 0) {
-    player.settledAmount = Math.min(Math.max(toNumber(player.settledAmount), 0), profit);
-    player.remainingAmount = 0;
-  } else {
-    player.remainingAmount = Math.max(toNumber(player.remainingAmount), 0);
-  }
+  syncSavedSessionPlayerSettlement(player);
   Object.assign(session, recomputeSavedSession(session));
   saveState();
   openHistorySessionModal(session.id, "settlement");
+  renderHistory();
+  renderStats();
+}
+
+function updateHistorySessionMetaField(event) {
+  const field = event.target.dataset.historySessionField;
+  const session = state.sessions.find((item) => item.id === event.target.dataset.sessionId);
+  if (!session || !field) return;
+  session[field] = toNumber(event.target.value);
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, "detail");
   renderHistory();
   renderStats();
 }
@@ -2106,6 +2835,60 @@ function updateHistorySessionPartnerField(event) {
   openHistorySessionModal(session.id, "detail");
   renderHistory();
   renderStats();
+}
+
+function deleteHistorySessionPlayer(sessionId, playerIndex) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const player = session?.players?.[playerIndex];
+  if (!session || !player) return;
+  if (!window.confirm(`确认删除玩家“${player.name || `玩家 ${playerIndex + 1}`}”的历史记录吗？`)) return;
+  session.players.splice(playerIndex, 1);
+  if (!session.players.length) {
+    moveSessionToTrash(sessionId);
+    return;
+  }
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, activeHistorySessionMode);
+  renderHistory();
+  renderStats();
+}
+
+function deleteHistorySessionPartner(sessionId, partnerIndex) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const partner = session?.partners?.[partnerIndex];
+  if (!session || !partner) return;
+  if (!window.confirm(`确认删除合伙人“${partner.name || `合伙人 ${partnerIndex + 1}`}”吗？`)) return;
+  const deletedPartnerName = String(partner.name || "").trim();
+  session.partners.splice(partnerIndex, 1);
+  if (deletedPartnerName) {
+    session.players.forEach((player) => {
+      if (String(player.partnerName || "").trim() === deletedPartnerName) {
+        player.partnerName = "";
+      }
+    });
+  }
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, "detail");
+  renderHistory();
+  renderStats();
+}
+
+function syncSavedSessionPlayerSettlement(player) {
+  const profit = toNumber(player.profit);
+  player.coverAmount = profit < 0 ? Math.min(Math.max(toNumber(player.coverAmount), 0), Math.abs(profit)) : 0;
+  player.settledAmount = Math.max(toNumber(player.settledAmount), 0);
+  player.remainingAmount = getPlayerOutstandingAmount(player);
+  const obligation = getSettlementObligation(player, profit);
+  player.settlementStatus =
+    obligation <= 0.009
+      ? "settled"
+      : player.remainingAmount <= 0.009
+      ? "settled"
+      : player.settledAmount > 0 || player.coverAmount > 0
+      ? "partial"
+      : "pending";
 }
 
 async function generateShareLinkForActiveSession() {
@@ -2142,18 +2925,37 @@ function renderHistorySessionDetail(session, settled) {
   const summary = getSavedSessionMetrics(session);
   return `
     <section class="subcard history-detail-summary">
-      <div class="session-item-top">
+      <div class="session-item-top history-detail-head">
         <div>
           <h4>${escapeHtml(session.name)}</h4>
           <p class="session-item-meta">${escapeHtml(session.date)} · ${escapeHtml(session.location || "未填写地点")} · ${toNumber(session.durationHours).toFixed(2)} 小时</p>
         </div>
         <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
       </div>
-      <div class="session-summary-grid">
+      <div class="session-summary-grid history-dense-grid">
         <div class="session-summary-item"><span>净利润</span><strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong></div>
+        <div class="session-summary-item"><span>总 Cover</span><strong class="${toNumber(session.totalCover) > 0 ? "negative" : ""}">${formatCurrency(toNumber(session.totalCover))}</strong></div>
         <div class="session-summary-item"><span>Hourly 抽水</span><strong class="${summary.hourlyRake >= 0 ? "positive" : "negative"}">${formatCurrency(summary.hourlyRake)}</strong></div>
         <div class="session-summary-item"><span>Hourly 净利润</span><strong class="${summary.hourlyNetProfit >= 0 ? "positive" : "negative"}">${formatCurrency(summary.hourlyNetProfit)}</strong></div>
         <div class="session-summary-item"><span>总抽水</span><strong class="${summary.grossRake >= 0 ? "positive" : "negative"}">${formatCurrency(summary.grossRake)}</strong></div>
+      </div>
+    </section>
+    <section class="subcard">
+      <div class="section-head compact">
+        <div>
+          <p class="section-kicker">Cost Editor</p>
+          <h4>历史成本修正</h4>
+        </div>
+      </div>
+      <div class="history-cost-editor">
+        <label>
+          <span>河官工资（可编辑）</span>
+          <input class="plain-entry-input" data-history-session-field="dealerFee" data-session-id="${session.id}" type="text" inputmode="decimal" value="${toNumber(session.dealerFee)}" />
+        </label>
+        <label>
+          <span>总 Cover（自动）</span>
+          <input class="plain-entry-input" type="text" value="${toNumber(session.totalCover)}" disabled />
+        </label>
       </div>
     </section>
     <section class="stack">
@@ -2168,29 +2970,36 @@ function renderHistorySessionDetail(session, settled) {
           ${session.partners
             .map((partner, index) => {
               const detail = getSavedSessionPartnerDetail(session, partner);
+              const partnerKey = `${session.id}:partner:${index}`;
+              const expanded = activeHistoryPartnerKey === partnerKey;
               return `
-                <article class="partner-detail-card">
-                  <div class="section-head compact">
-                    <div>
-                      <h4>${escapeHtml(partner.name || `合伙人 ${index + 1}`)}</h4>
-                      <p class="session-item-meta">应得分水 ${formatCurrency(detail.profitShare)} · 在桌输赢 ${formatCurrency(detail.tableProfit)}</p>
-                    </div>
+                <article class="partner-detail-card swipe-delete-shell" data-swipe-delete>
+                  <div class="swipe-delete-action">
+                    <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-partner" data-session-id="${session.id}" data-partner-index="${index}">删除</button>
                   </div>
-                  <div class="grid two">
+                  <div class="swipe-delete-track">
+                    <button class="history-compact-toggle history-partner-toggle" type="button" data-history-action="toggle-history-partner" data-partner-key="${partnerKey}">
+                      <span class="history-compact-name">${escapeHtml(partner.name || `合伙人 ${index + 1}`)}</span>
+                      <span class="history-compact-metric ${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</span>
+                      <span class="history-compact-label">在桌 ${formatCurrency(detail.tableProfit)}</span>
+                      <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+                    </button>
+                    <div class="history-compact-details history-dense-grid" ${expanded ? "" : "hidden"}>
+                      <div class="session-summary-item"><span>应得分水</span><strong>${formatCurrency(detail.profitShare)}</strong></div>
+                      <div class="session-summary-item"><span>与局里账务</span><strong class="${detail.balanceWithSession >= 0 ? "positive" : "negative"}">${formatCurrency(detail.balanceWithSession)}</strong></div>
+                      <div class="session-summary-item"><span>当前收账 / 垫账</span><strong class="${detail.advance <= 0 ? "positive" : "negative"}">${formatCurrency(detail.advance)}</strong></div>
+                      <div class="session-summary-item"><span>实际应到手</span><strong class="${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</strong></div>
+                    </div>
+                  <div class="history-edit-grid" ${expanded ? "" : "hidden"}>
                     <label>
                       <span>成本（可编辑）</span>
-                      <input data-history-partner-field="cost" data-session-id="${session.id}" data-partner-index="${index}" type="number" step="0.01" value="${toNumber(partner.cost)}" />
+                      <input class="plain-entry-input" data-history-partner-field="cost" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.cost)}" />
                     </label>
                     <label>
                       <span>收账 / 垫账（可编辑）</span>
-                      <input data-history-partner-field="manualAdvance" data-session-id="${session.id}" data-partner-index="${index}" type="number" step="0.01" value="${toNumber(partner.manualAdvance ?? partner.advance)}" />
+                      <input class="plain-entry-input" data-history-partner-field="manualAdvance" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.manualAdvance ?? partner.advance)}" />
                     </label>
                   </div>
-                  <div class="session-summary-grid history-summary-grid">
-                    <div class="session-summary-item"><span>应得分水</span><strong>${formatCurrency(detail.profitShare)}</strong></div>
-                    <div class="session-summary-item"><span>当前收账 / 垫账</span><strong class="${detail.advance <= 0 ? "positive" : "negative"}">${formatCurrency(detail.advance)}</strong></div>
-                    <div class="session-summary-item"><span>实际应到手利润</span><strong class="${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</strong></div>
-                    <div class="session-summary-item"><span>与局里账务</span><strong class="${detail.balanceWithSession >= 0 ? "positive" : "negative"}">${formatCurrency(detail.balanceWithSession)}</strong></div>
                   </div>
                 </article>
               `;
@@ -2201,24 +3010,7 @@ function renderHistorySessionDetail(session, settled) {
     </section>
     <section class="stack">
       ${session.players
-        .map(
-          (player, index) => `
-            <article class="subcard history-player-card">
-              <div class="section-head compact">
-                <div>
-                  <h4>${escapeHtml(player.name || `玩家 ${index + 1}`)}</h4>
-                  <p class="session-item-meta">总 Buyin ${formatCurrency(player.totalBuyIn)} · Cash Out ${formatCurrency(player.cashOut)} · 盈亏 ${formatCurrency(player.profit)}</p>
-                </div>
-              </div>
-              <div class="session-summary-grid history-summary-grid">
-                <div class="session-summary-item"><span>结账状态</span><strong>${escapeHtml(settlementLabel(player.settlementStatus))}</strong></div>
-                <div class="session-summary-item"><span>已结金额</span><strong>${formatCurrency(toNumber(player.settledAmount))}</strong></div>
-                <div class="session-summary-item"><span>未结金额</span><strong>${formatCurrency(getPlayerOutstandingAmount(player))}</strong></div>
-                <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
-              </div>
-            </article>
-          `
-        )
+        .map((player, index) => renderHistoryPlayerDetailCard(session, player, index))
         .join("")}
     </section>
   `;
@@ -2232,30 +3024,30 @@ function renderHistorySessionSettlement(session, partnerNames) {
       const playerKey = `${session.id}:${index}`;
       const expanded = activeHistorySettlementPlayerKey === playerKey;
       return `
-        <article class="subcard history-player-card">
-          <button class="history-player-toggle" type="button" data-history-action="toggle-history-settlement-player" data-player-key="${playerKey}">
-            <span>
-              <strong>${escapeHtml(player.name || `玩家 ${index + 1}`)}</strong>
-              <small>总 Buyin ${formatCurrency(player.totalBuyIn)} · Cash Out ${formatCurrency(player.cashOut)} · 盈亏 ${formatCurrency(player.profit)}</small>
-            </span>
-            <span>${expanded ? "收起" : "编辑结账"}</span>
-          </button>
-          <div class="grid four" ${expanded ? "" : "hidden"}>
-            <label>
-              <span>结账状态</span>
-              <select data-history-player-field="settlementStatus" data-session-id="${session.id}" data-player-index="${index}">
-                ${["pending", "partial", "settled"]
-                  .map((status) => `<option value="${status}" ${player.settlementStatus === status ? "selected" : ""}>${settlementLabel(status)}</option>`)
-                  .join("")}
-              </select>
-            </label>
+        <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
+          <div class="swipe-delete-action">
+            <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
+          </div>
+          <div class="swipe-delete-track">
+            <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-settlement-player" data-player-key="${playerKey}">
+              <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
+              <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
+              <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
+              <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
+              <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+            </button>
+          <div class="history-edit-grid history-settlement-edit-grid" ${expanded ? "" : "hidden"}>
             <label>
               <span>已结金额</span>
-              <input data-history-player-field="settledAmount" data-session-id="${session.id}" data-player-index="${index}" type="number" step="0.01" value="${toNumber(player.settledAmount)}" />
+              <input class="plain-entry-input" data-history-player-field="settledAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${toNumber(player.settledAmount)}" />
             </label>
             <label>
-              <span>${profit > 0 ? "未结金额" : "剩余欠款"}</span>
-              <input data-history-player-field="remainingAmount" data-session-id="${session.id}" data-player-index="${index}" type="number" step="0.01" value="${profit > 0 ? outstanding : toNumber(player.remainingAmount)}" ${profit > 0 ? "readonly" : ""} />
+              <span>Cover 金额</span>
+              <input class="plain-entry-input" data-history-player-field="coverAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${getPlayerCoverAmount(player)}" ${profit > 0 ? "disabled" : ""} />
+            </label>
+            <label>
+              <span>${profit > 0 ? "待付金额" : "剩余欠款"}</span>
+              <input class="plain-entry-input" data-history-player-field="remainingAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" value="${outstanding}" readonly />
             </label>
             <label>
               <span>收款人</span>
@@ -2267,10 +3059,48 @@ function renderHistorySessionSettlement(session, partnerNames) {
               </select>
             </label>
           </div>
+          <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
+            <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
+            <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
+            <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
+            <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
+          </div>
+          </div>
         </article>
       `;
     })
     .join("");
+}
+
+function renderHistoryPlayerDetailCard(session, player, index) {
+  const profit = toNumber(player.profit);
+  const outstanding = getPlayerOutstandingAmount(player);
+  const playerKey = `${session.id}:detail:${index}`;
+  const expanded = activeHistoryDetailPlayerKey === playerKey;
+  return `
+    <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
+      <div class="swipe-delete-action">
+        <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
+      </div>
+      <div class="swipe-delete-track">
+        <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-detail-player" data-player-key="${playerKey}">
+          <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
+          <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
+          <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
+          <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
+          <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+        </button>
+        <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
+          <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
+          <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
+          <div class="session-summary-item"><span>已结金额</span><strong>${formatCurrency(toNumber(player.settledAmount))}</strong></div>
+          <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
+          <div class="session-summary-item"><span>未结金额</span><strong class="${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</strong></div>
+          <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
+        </div>
+      </div>
+    </article>
+  `;
 }
 
 function renderPlayerOptions() {
@@ -2283,6 +3113,143 @@ function renderPlayerOptions() {
   elements.playerInsightSelect.innerHTML = sortedPlayers;
   elements.mergeSourcePlayerSelect.innerHTML = `<option value="">选择需要合并的玩家</option>${sortedPlayers}`;
   if (selected) elements.playerInsightSelect.value = selected;
+}
+
+function overwriteLocalState(snapshot, options = {}) {
+  const normalized = normalizeRootState(snapshot);
+  Object.keys(state).forEach((key) => delete state[key]);
+  Object.assign(state, normalized);
+  ensureDraftSession();
+  if (!options.skipPersist) {
+    saveState({ skipRemote: true });
+  }
+  render();
+}
+
+function createSelfCheckFixtureSession() {
+  return normalizeSession({
+    id: "self-check-session",
+    name: "Self Check Session",
+    date: "2026-07-05T20:00",
+    location: "Fort lee",
+    dealerFee: 200,
+    dealerShareEnabled: "No",
+    dealerSharePercent: 0,
+    collaborationSharePercent: 0,
+    totalBuyIn: 60000,
+    totalCashOut: 60000,
+    players: [
+      {
+        playerId: "p-loser",
+        name: "Loser",
+        totalBuyIn: 50000,
+        cashOut: 5000,
+        profit: -45000,
+        settledAmount: 40000,
+        coverAmount: 5000,
+        remainingAmount: 0,
+        settlementStatus: "settled",
+        partnerName: "",
+      },
+      {
+        playerId: "p-winner",
+        name: "Winner",
+        totalBuyIn: 10000,
+        cashOut: 55000,
+        profit: 45000,
+        settledAmount: 45000,
+        coverAmount: 0,
+        remainingAmount: 0,
+        settlementStatus: "settled",
+        partnerName: "Blue",
+      },
+    ],
+    partners: [
+      {
+        name: "Blue",
+        sharePercent: 100,
+        cost: 300,
+        manualAdvance: 0,
+        advance: 0,
+      },
+    ],
+  });
+}
+
+function assertSelfCheck(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function runSelfCheckPass() {
+  const session = createSelfCheckFixtureSession();
+  overwriteLocalState(
+    {
+      ui: { activeView: "history", expandedPlayerId: "", expandedHistorySettlementPlayerKey: "" },
+      draftSession: createDefaultDraftSession(),
+      sessions: [session],
+      deletedSessions: [],
+      players: [],
+      meta: state.meta,
+    },
+    { skipPersist: true }
+  );
+
+  const current = state.sessions[0];
+  assertSelfCheck(toNumber(current.totalCover) === 5000, "Cover 未计入历史账单总额");
+  assertSelfCheck(toNumber(current.netProfit) === -5500, "Cover 或成本未正确反映到净利润");
+  assertSelfCheck(getPlayerOutstandingAmount(current.players[0]) === 0, "Loser 的 cover 后剩余欠款应为 0");
+
+  current.dealerFee = 1200;
+  Object.assign(current, recomputeSavedSession(current));
+  assertSelfCheck(toNumber(current.netProfit) === -6500, "修改历史河官工资后净利润未重算");
+
+  deleteHistorySessionPartner(current.id, 0);
+  assertSelfCheck(state.sessions[0].partners.length === 0, "历史合伙人删除失败");
+
+  const refreshed = state.sessions[0];
+  deleteHistorySessionPlayer(refreshed.id, 1);
+  assertSelfCheck(state.sessions[0].players.length === 1, "历史玩家删除失败");
+
+  moveSessionToTrash(refreshed.id, { skipPersist: true });
+  assertSelfCheck(state.sessions.length === 0 && state.deletedSessions.length === 1, "账单未进入垃圾箱");
+
+  restoreSessionFromTrash(refreshed.id, { skipPersist: true });
+  assertSelfCheck(state.sessions.length === 1 && state.deletedSessions.length === 0, "垃圾箱恢复失败");
+
+  state.deletedSessions.push({
+    id: "expired-session",
+    deletedAt: "2026-07-03T00:00:00.000Z",
+    restoreBefore: "2026-07-04T00:00:00.000Z",
+    session: createSelfCheckFixtureSession(),
+  });
+  purgeExpiredDeletedSessions();
+  assertSelfCheck(!state.deletedSessions.some((entry) => entry.id === "expired-session"), "过期垃圾箱账单未清理");
+
+  return {
+    totalCover: state.sessions[0].totalCover,
+    netProfit: state.sessions[0].netProfit,
+    deletedSessions: state.deletedSessions.length,
+  };
+}
+
+async function runSelfCheckLoop() {
+  const originalState = cloneState(state);
+  const originalConfirm = window.confirm;
+  const report = [];
+  window.confirm = () => true;
+  try {
+    for (let pass = 1; pass <= 2; pass += 1) {
+      const result = runSelfCheckPass();
+      report.push({ pass, ok: true, result });
+    }
+    return { ok: true, report };
+  } catch (error) {
+    report.push({ ok: false, error: error.message || String(error) });
+    return { ok: false, report };
+  } finally {
+    window.confirm = originalConfirm;
+    overwriteLocalState(originalState, { skipPersist: true });
+  }
 }
 
 function mergePlayers() {
@@ -2407,17 +3374,17 @@ function renderLeaderboard() {
     ? pageItems
         .map(
           (player, index) => `
-            <article class="leaderboard-row">
-              <div class="toolbar">
-                <span class="leaderboard-rank">${pageStart + index + 1}</span>
-                <div>
+            <article class="leaderboard-row leaderboard-player-pill">
+              <div class="leaderboard-player-copy">
+                <div class="leaderboard-player-head">
+                  <span class="leaderboard-rank">${pageStart + index + 1}</span>
                   <h3>${escapeHtml(player.name)}</h3>
-                  <p>${player.sessionCount} 场 · ROI ${player.roi.toFixed(1)}%</p>
                 </div>
+                <p>ROI ${player.roi.toFixed(1)}% · ${player.sessionCount} 场</p>
               </div>
-              <strong class="leaderboard-score ${(player[metric] || 0) >= 0 ? "positive" : "negative"}">${
-                metric === "sessionCount" ? player[metric] : formatCurrency(player[metric] || 0)
-              }</strong>
+              <strong class="leaderboard-score leaderboard-player-total ${player.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(
+                player.netProfit || 0
+              )}</strong>
             </article>
           `
         )
