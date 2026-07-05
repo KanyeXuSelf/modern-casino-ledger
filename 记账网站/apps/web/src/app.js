@@ -1897,6 +1897,10 @@ function formatSetupDate(value) {
   return String(value || "").replace("T", " ");
 }
 
+function shouldUseMobileSwipeUi() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
 function formatShortDate(value) {
   return String(value || "").replaceAll("-", "/").slice(5);
 }
@@ -1956,26 +1960,32 @@ function renderHistory() {
     const settled = isSessionSettled(session);
     if (filter === "settled" && !settled) return;
     if (filter === "unsettled" && settled) return;
-    const card = `
-      <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
-        <div class="swipe-delete-action">
-          <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>
+    const content = `
+      <div class="session-item-top session-item-top-compact dense-history-row history-session-row">
+        <button class="dense-history-main history-session-chip history-session-primary" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">
+          <span class="history-chip-title">${escapeHtml(formatSetupDate(session.date))}</span>
+          <span class="history-chip-meta">${escapeHtml(session.location || "未填写地点")}</span>
+        </button>
+        <strong class="history-session-profit history-session-profit-core ${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
+        <div class="history-session-side">
+          <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
+          <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账</button>
+          ${shouldUseMobileSwipeUi() ? "" : `<button class="ghost-button danger-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>`}
         </div>
-        <div class="swipe-delete-track">
-          <div class="session-item-top session-item-top-compact dense-history-row history-session-row">
-            <button class="dense-history-main history-session-chip history-session-primary" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">
-              <span class="history-chip-title">${escapeHtml(formatSetupDate(session.date))}</span>
-              <span class="history-chip-meta">${escapeHtml(session.location || "未填写地点")}</span>
-            </button>
-            <strong class="history-session-profit history-session-profit-core ${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
-            <div class="history-session-side">
-              <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
-              <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账</button>
-            </div>
-          </div>
-        </div>
-      </article>
+      </div>
     `;
+    const card = shouldUseMobileSwipeUi()
+      ? `
+        <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
+          <div class="swipe-delete-action">
+            <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>
+          </div>
+          <div class="swipe-delete-track">${content}</div>
+        </article>
+      `
+      : `
+        <article class="session-item session-item-compact">${content}</article>
+      `;
     if (settled) {
       settledSessions.push(card);
     } else {
@@ -1995,7 +2005,7 @@ function renderHistory() {
     elements.sessionList.innerHTML = cards.join("");
   }
   renderTrashBin();
-  bindSwipeDeleteInteractions(elements.sessionList);
+  if (shouldUseMobileSwipeUi()) bindSwipeDeleteInteractions(elements.sessionList);
 }
 
 function hasDraftActivity() {
@@ -2359,28 +2369,34 @@ function renderTrashBin() {
   elements.trashList.innerHTML = state.deletedSessions
     .map((entry) => {
       const expiresInMs = Math.max(new Date(entry.restoreBefore).getTime() - Date.now(), 0);
-      return `
-        <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
-          <div class="swipe-delete-action">
-            <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="purge-session" data-session-id="${entry.id}">彻底删</button>
+      const content = `
+        <div class="session-item-top session-item-top-compact dense-history-row history-session-row history-trash-row">
+          <div class="dense-history-main history-session-chip">
+            <span class="history-chip-title">${escapeHtml(entry.session.name)}</span>
+            <span class="history-chip-meta">${escapeHtml(formatSetupDate(entry.session.date))} · ${escapeHtml(entry.session.location || "未填写地点")}</span>
           </div>
-          <div class="swipe-delete-track">
-            <div class="session-item-top session-item-top-compact dense-history-row history-session-row history-trash-row">
-              <div class="dense-history-main history-session-chip">
-                <span class="history-chip-title">${escapeHtml(entry.session.name)}</span>
-                <span class="history-chip-meta">${escapeHtml(formatSetupDate(entry.session.date))} · ${escapeHtml(entry.session.location || "未填写地点")}</span>
-              </div>
-              <div class="history-session-side history-trash-side">
-                <span class="session-item-meta">剩余 ${formatDuration(expiresInMs)}</span>
-                <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="restore-session" data-session-id="${entry.id}">恢复</button>
-              </div>
-            </div>
+          <div class="history-session-side history-trash-side">
+            <span class="session-item-meta">剩余 ${formatDuration(expiresInMs)}</span>
+            <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="restore-session" data-session-id="${entry.id}">恢复</button>
+            ${shouldUseMobileSwipeUi() ? "" : `<button class="ghost-button danger-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="purge-session" data-session-id="${entry.id}">彻底删</button>`}
           </div>
-        </article>
+        </div>
       `;
+      return shouldUseMobileSwipeUi()
+        ? `
+          <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
+            <div class="swipe-delete-action">
+              <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="purge-session" data-session-id="${entry.id}">彻底删</button>
+            </div>
+            <div class="swipe-delete-track">${content}</div>
+          </article>
+        `
+        : `
+          <article class="session-item session-item-compact">${content}</article>
+        `;
     })
     .join("");
-  bindSwipeDeleteInteractions(elements.trashList);
+  if (shouldUseMobileSwipeUi()) bindSwipeDeleteInteractions(elements.trashList);
 }
 
 function renderStats() {
@@ -2783,7 +2799,7 @@ function openHistorySessionModal(sessionId, mode = "settlement") {
       field.addEventListener("change", updateHistorySessionPartnerField);
     });
   }
-  bindSwipeDeleteInteractions(elements.historySessionDetail);
+  if (shouldUseMobileSwipeUi()) bindSwipeDeleteInteractions(elements.historySessionDetail);
   if (!elements.historySessionModal.open) {
     elements.historySessionModal.showModal();
   }
@@ -2923,6 +2939,7 @@ async function generateShareLinkForActiveSession() {
 
 function renderHistorySessionDetail(session, settled) {
   const summary = getSavedSessionMetrics(session);
+  const mobileSwipeUi = shouldUseMobileSwipeUi();
   return `
     <section class="subcard history-detail-summary">
       <div class="session-item-top history-detail-head">
@@ -2972,37 +2989,43 @@ function renderHistorySessionDetail(session, settled) {
               const detail = getSavedSessionPartnerDetail(session, partner);
               const partnerKey = `${session.id}:partner:${index}`;
               const expanded = activeHistoryPartnerKey === partnerKey;
-              return `
-                <article class="partner-detail-card swipe-delete-shell" data-swipe-delete>
-                  <div class="swipe-delete-action">
-                    <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-partner" data-session-id="${session.id}" data-partner-index="${index}">删除</button>
-                  </div>
-                  <div class="swipe-delete-track">
-                    <button class="history-compact-toggle history-partner-toggle" type="button" data-history-action="toggle-history-partner" data-partner-key="${partnerKey}">
-                      <span class="history-compact-name">${escapeHtml(partner.name || `合伙人 ${index + 1}`)}</span>
-                      <span class="history-compact-metric ${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</span>
-                      <span class="history-compact-label">在桌 ${formatCurrency(detail.tableProfit)}</span>
-                      <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
-                    </button>
-                    <div class="history-compact-details history-dense-grid" ${expanded ? "" : "hidden"}>
-                      <div class="session-summary-item"><span>应得分水</span><strong>${formatCurrency(detail.profitShare)}</strong></div>
-                      <div class="session-summary-item"><span>与局里账务</span><strong class="${detail.balanceWithSession >= 0 ? "positive" : "negative"}">${formatCurrency(detail.balanceWithSession)}</strong></div>
-                      <div class="session-summary-item"><span>当前收账 / 垫账</span><strong class="${detail.advance <= 0 ? "positive" : "negative"}">${formatCurrency(detail.advance)}</strong></div>
-                      <div class="session-summary-item"><span>实际应到手</span><strong class="${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</strong></div>
-                    </div>
-                  <div class="history-edit-grid" ${expanded ? "" : "hidden"}>
-                    <label>
-                      <span>成本（可编辑）</span>
-                      <input class="plain-entry-input" data-history-partner-field="cost" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.cost)}" />
-                    </label>
-                    <label>
-                      <span>收账 / 垫账（可编辑）</span>
-                      <input class="plain-entry-input" data-history-partner-field="manualAdvance" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.manualAdvance ?? partner.advance)}" />
-                    </label>
-                  </div>
-                  </div>
-                </article>
+              const partnerContent = `
+                ${mobileSwipeUi ? "" : `<div class="history-partner-header-actions"><button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-history-partner" data-session-id="${session.id}" data-partner-index="${index}">删除</button></div>`}
+                <button class="history-compact-toggle history-partner-toggle" type="button" data-history-action="toggle-history-partner" data-partner-key="${partnerKey}">
+                  <span class="history-compact-name">${escapeHtml(partner.name || `合伙人 ${index + 1}`)}</span>
+                  <span class="history-compact-metric ${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</span>
+                  <span class="history-compact-label">在桌 ${formatCurrency(detail.tableProfit)}</span>
+                  <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+                </button>
+                <div class="history-compact-details history-dense-grid" ${expanded ? "" : "hidden"}>
+                  <div class="session-summary-item"><span>应得分水</span><strong>${formatCurrency(detail.profitShare)}</strong></div>
+                  <div class="session-summary-item"><span>与局里账务</span><strong class="${detail.balanceWithSession >= 0 ? "positive" : "negative"}">${formatCurrency(detail.balanceWithSession)}</strong></div>
+                  <div class="session-summary-item"><span>当前收账 / 垫账</span><strong class="${detail.advance <= 0 ? "positive" : "negative"}">${formatCurrency(detail.advance)}</strong></div>
+                  <div class="session-summary-item"><span>实际应到手</span><strong class="${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</strong></div>
+                </div>
+                <div class="history-edit-grid" ${expanded ? "" : "hidden"}>
+                  <label>
+                    <span>成本（可编辑）</span>
+                    <input class="plain-entry-input" data-history-partner-field="cost" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.cost)}" />
+                  </label>
+                  <label>
+                    <span>收账 / 垫账（可编辑）</span>
+                    <input class="plain-entry-input" data-history-partner-field="manualAdvance" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.manualAdvance ?? partner.advance)}" />
+                  </label>
+                </div>
               `;
+              return mobileSwipeUi
+                ? `
+                  <article class="partner-detail-card swipe-delete-shell" data-swipe-delete>
+                    <div class="swipe-delete-action">
+                      <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-partner" data-session-id="${session.id}" data-partner-index="${index}">删除</button>
+                    </div>
+                    <div class="swipe-delete-track">${partnerContent}</div>
+                  </article>
+                `
+                : `
+                  <article class="partner-detail-card">${partnerContent}</article>
+                `;
             })
             .join("")}
         </div>
@@ -3017,57 +3040,64 @@ function renderHistorySessionDetail(session, settled) {
 }
 
 function renderHistorySessionSettlement(session, partnerNames) {
+  const mobileSwipeUi = shouldUseMobileSwipeUi();
   return session.players
     .map((player, index) => {
       const profit = toNumber(player.profit);
       const outstanding = getPlayerOutstandingAmount(player);
       const playerKey = `${session.id}:${index}`;
       const expanded = activeHistorySettlementPlayerKey === playerKey;
-      return `
-        <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
-          <div class="swipe-delete-action">
-            <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
-          </div>
-          <div class="swipe-delete-track">
-            <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-settlement-player" data-player-key="${playerKey}">
-              <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
-              <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
-              <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
-              <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
-              <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
-            </button>
-          <div class="history-edit-grid history-settlement-edit-grid" ${expanded ? "" : "hidden"}>
-            <label>
-              <span>已结金额</span>
-              <input class="plain-entry-input" data-history-player-field="settledAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${toNumber(player.settledAmount)}" />
-            </label>
-            <label>
-              <span>Cover 金额</span>
-              <input class="plain-entry-input" data-history-player-field="coverAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${getPlayerCoverAmount(player)}" ${profit > 0 ? "disabled" : ""} />
-            </label>
-            <label>
-              <span>${profit > 0 ? "待付金额" : "剩余欠款"}</span>
-              <input class="plain-entry-input" data-history-player-field="remainingAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" value="${outstanding}" readonly />
-            </label>
-            <label>
-              <span>收款人</span>
-              <select data-history-player-field="partnerName" data-session-id="${session.id}" data-player-index="${index}">
-                <option value="">未记录</option>
-                ${partnerNames
-                  .map((partnerName) => `<option value="${escapeHtml(partnerName)}" ${player.partnerName === partnerName ? "selected" : ""}>${escapeHtml(partnerName)}</option>`)
-                  .join("")}
-              </select>
-            </label>
-          </div>
-          <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
-            <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
-            <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
-            <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
-            <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
-          </div>
-          </div>
-        </article>
+      const playerContent = `
+        ${mobileSwipeUi ? "" : `<div class="history-player-header-actions"><button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button></div>`}
+        <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-settlement-player" data-player-key="${playerKey}">
+          <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
+          <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
+          <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
+          <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
+          <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+        </button>
+        <div class="history-edit-grid history-settlement-edit-grid" ${expanded ? "" : "hidden"}>
+          <label>
+            <span>已结金额</span>
+            <input class="plain-entry-input" data-history-player-field="settledAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${toNumber(player.settledAmount)}" />
+          </label>
+          <label>
+            <span>Cover 金额</span>
+            <input class="plain-entry-input" data-history-player-field="coverAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${getPlayerCoverAmount(player)}" ${profit > 0 ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>${profit > 0 ? "待付金额" : "剩余欠款"}</span>
+            <input class="plain-entry-input" data-history-player-field="remainingAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" value="${outstanding}" readonly />
+          </label>
+          <label>
+            <span>收款人</span>
+            <select data-history-player-field="partnerName" data-session-id="${session.id}" data-player-index="${index}">
+              <option value="">未记录</option>
+              ${partnerNames
+                .map((partnerName) => `<option value="${escapeHtml(partnerName)}" ${player.partnerName === partnerName ? "selected" : ""}>${escapeHtml(partnerName)}</option>`)
+                .join("")}
+            </select>
+          </label>
+        </div>
+        <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
+          <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
+          <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
+          <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
+          <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
+        </div>
       `;
+      return mobileSwipeUi
+        ? `
+          <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
+            <div class="swipe-delete-action">
+              <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
+            </div>
+            <div class="swipe-delete-track">${playerContent}</div>
+          </article>
+        `
+        : `
+          <article class="subcard history-player-card">${playerContent}</article>
+        `;
     })
     .join("");
 }
@@ -3077,30 +3107,37 @@ function renderHistoryPlayerDetailCard(session, player, index) {
   const outstanding = getPlayerOutstandingAmount(player);
   const playerKey = `${session.id}:detail:${index}`;
   const expanded = activeHistoryDetailPlayerKey === playerKey;
-  return `
-    <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
-      <div class="swipe-delete-action">
-        <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
-      </div>
-      <div class="swipe-delete-track">
-        <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-detail-player" data-player-key="${playerKey}">
-          <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
-          <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
-          <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
-          <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
-          <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
-        </button>
-        <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
-          <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
-          <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
-          <div class="session-summary-item"><span>已结金额</span><strong>${formatCurrency(toNumber(player.settledAmount))}</strong></div>
-          <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
-          <div class="session-summary-item"><span>未结金额</span><strong class="${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</strong></div>
-          <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
-        </div>
-      </div>
-    </article>
+  const mobileSwipeUi = shouldUseMobileSwipeUi();
+  const playerContent = `
+    ${mobileSwipeUi ? "" : `<div class="history-player-header-actions"><button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button></div>`}
+    <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-detail-player" data-player-key="${playerKey}">
+      <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
+      <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
+      <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
+      <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
+      <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+    </button>
+    <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
+      <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
+      <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
+      <div class="session-summary-item"><span>已结金额</span><strong>${formatCurrency(toNumber(player.settledAmount))}</strong></div>
+      <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
+      <div class="session-summary-item"><span>未结金额</span><strong class="${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</strong></div>
+      <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
+    </div>
   `;
+  return mobileSwipeUi
+    ? `
+      <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
+        <div class="swipe-delete-action">
+          <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
+        </div>
+        <div class="swipe-delete-track">${playerContent}</div>
+      </article>
+    `
+    : `
+      <article class="subcard history-player-card">${playerContent}</article>
+    `;
 }
 
 function renderPlayerOptions() {
