@@ -1,0 +1,3498 @@
+import { createAuthModule } from "./modules/auth.js";
+import { createSyncModule } from "./modules/sync.js";
+import { createRenderModule } from "./modules/render.js";
+import { createWorkbookDemoState } from "./modules/demo.js";
+
+const DEFAULT_STORAGE_KEY = "poker-ledger-v3";
+const DEFAULT_CLIENT_ID_KEY = "poker-ledger-client-id";
+const DEFAULT_SYNC_TEXT = "当前仅保存在本机浏览器。";
+const TRASH_RETENTION_MS = 24 * 60 * 60 * 1000;
+const urlParams = new URLSearchParams(window.location.search);
+const shareToken = urlParams.get("share") || "";
+const demoMode = urlParams.get("demo") || "";
+const sandboxId = normalizeSandboxId(urlParams.get("sandbox") || "");
+const config = normalizeConfig(window.POKER_LEDGER_CONFIG || {});
+const isLocalDemoHost = ["127.0.0.1", "localhost"].includes(window.location.hostname) || window.location.protocol === "file:";
+const STORAGE_KEY = sandboxId ? `${DEFAULT_STORAGE_KEY}:sandbox:${sandboxId}` : DEFAULT_STORAGE_KEY;
+const CLIENT_ID_KEY = sandboxId ? `${DEFAULT_CLIENT_ID_KEY}:sandbox:${sandboxId}` : DEFAULT_CLIENT_ID_KEY;
+
+if (sandboxId) {
+  config.syncProvider = "local";
+  config.siteTitle = `${config.siteTitle} Sandbox`;
+}
+
+if (isLocalDemoHost && demoMode === "workbook") {
+  config.syncProvider = "local";
+}
+
+const state = loadState();
+const authContext = {
+  client: null,
+  user: null,
+  member: null,
+  initialized: false,
+};
+const syncContext = {
+  clientId: getOrCreateClientId(),
+  status: "local",
+  statusText: DEFAULT_SYNC_TEXT,
+  initialized: false,
+  manager: null,
+  channel: null,
+  pendingTimer: null,
+  pushing: false,
+  queuedSnapshot: null,
+};
+
+const elements = {
+  heroHeader: document.querySelector("#heroHeader"),
+  heroSessionCount: document.querySelector("#heroSessionCount"),
+  heroPlayerCount: document.querySelector("#heroPlayerCount"),
+  syncStatusBadge: document.querySelector("#syncStatusBadge"),
+  syncStatusText: document.querySelector("#syncStatusText"),
+  authStatusBadge: document.querySelector("#authStatusBadge"),
+  authStatusText: document.querySelector("#authStatusText"),
+  currentUserEmail: document.querySelector("#currentUserEmail"),
+  signOutBtn: document.querySelector("#signOutBtn"),
+  accessGateView: document.querySelector("#accessGateView"),
+  openGateLoginDialogBtn: document.querySelector("#openGateLoginDialogBtn"),
+  gateLoginDialog: document.querySelector("#gateLoginDialog"),
+  closeGateLoginDialogBtn: document.querySelector("#closeGateLoginDialogBtn"),
+  gateUsernameInput: document.querySelector("#gateUsernameInput"),
+  gatePasswordInput: document.querySelector("#gatePasswordInput"),
+  gateLoginBtn: document.querySelector("#gateLoginBtn"),
+  gateAuthStatusText: document.querySelector("#gateAuthStatusText"),
+  shareView: document.querySelector("#shareView"),
+  shareSessionDetail: document.querySelector("#shareSessionDetail"),
+  homeView: document.querySelector("#homeView"),
+  accountingView: document.querySelector("#accountingView"),
+  historyView: document.querySelector("#historyView"),
+  statsView: document.querySelector("#statsView"),
+  sessionForm: document.querySelector("#sessionForm"),
+  playerRows: document.querySelector("#playerRows"),
+  playerTemplate: document.querySelector("#playerRowTemplate"),
+  partnerRows: document.querySelector("#partnerRows"),
+  partnerTemplate: document.querySelector("#partnerRowTemplate"),
+  addPlayerBtn: document.querySelector("#addPlayerBtn"),
+  addPlayerModal: document.querySelector("#addPlayerModal"),
+  closeAddPlayerModalBtn: document.querySelector("#closeAddPlayerModalBtn"),
+  addPlayerNameInput: document.querySelector("#addPlayerNameInput"),
+  addPlayerBuyinInput: document.querySelector("#addPlayerBuyinInput"),
+  addPlayerSuggestions: document.querySelector("#addPlayerSuggestions"),
+  confirmAddPlayerBtn: document.querySelector("#confirmAddPlayerBtn"),
+  addPartnerBtn: document.querySelector("#addPartnerBtn"),
+  resetSessionBtn: document.querySelector("#resetSessionBtn"),
+  toggleSessionInfoBtn: document.querySelector("#toggleSessionInfoBtn"),
+  enterSettlementBtn: document.querySelector("#enterSettlementBtn"),
+  returnLiveBtn: document.querySelector("#returnLiveBtn"),
+  draftStagePill: document.querySelector("#draftStagePill"),
+  sessionTimerDisplay: document.querySelector("#sessionTimerDisplay"),
+  openRebuyModalBtn: document.querySelector("#openRebuyModalBtn"),
+  rebuyModal: document.querySelector("#rebuyModal"),
+  closeRebuyModalBtn: document.querySelector("#closeRebuyModalBtn"),
+  rebuyPlayerSelect: document.querySelector("#rebuyPlayerSelect"),
+  rebuyAmountInput: document.querySelector("#rebuyAmountInput"),
+  confirmRebuyBtn: document.querySelector("#confirmRebuyBtn"),
+  playerSuggestions: document.querySelector("#playerSuggestions"),
+  sessionName: document.querySelector("#sessionName"),
+  sessionDate: document.querySelector("#sessionDate"),
+  sessionLocation: document.querySelector("#sessionLocation"),
+  sessionDuration: document.querySelector("#sessionDuration"),
+  sessionNotes: document.querySelector("#sessionNotes"),
+  dealerFee: document.querySelector("#dealerFee"),
+  dealerNames: document.querySelector("#dealerNames"),
+  dealerSharePercent: document.querySelector("#dealerSharePercent"),
+  collaborationName: document.querySelector("#collaborationName"),
+  collaborationSharePercent: document.querySelector("#collaborationSharePercent"),
+  modernShareDisplay: document.querySelector("#modernShareDisplay"),
+  sessionCashoutDisplay: document.querySelector("#sessionCashoutDisplay"),
+  sessionMetrics: document.querySelector("#sessionMetrics"),
+  profitSummaryCards: document.querySelector("#profitSummaryCards"),
+  partnerFinalTable: document.querySelector("#partnerFinalTable"),
+  sessionList: document.querySelector("#sessionList"),
+  trashList: document.querySelector("#trashList"),
+  historySettlementFilter: document.querySelector("#historySettlementFilter"),
+  overviewGrid: document.querySelector("#overviewGrid"),
+  debtSummary: document.querySelector("#debtSummary"),
+  playerInsightSelect: document.querySelector("#playerInsightSelect"),
+  playerInsight: document.querySelector("#playerInsight"),
+  newPlayerName: document.querySelector("#newPlayerName"),
+  createPlayerBtn: document.querySelector("#createPlayerBtn"),
+  mergeSourcePlayerSelect: document.querySelector("#mergeSourcePlayerSelect"),
+  mergeTargetPlayerInput: document.querySelector("#mergeTargetPlayerInput"),
+  mergePlayersBtn: document.querySelector("#mergePlayersBtn"),
+  mergePlayersStatus: document.querySelector("#mergePlayersStatus"),
+  leaderboardMetric: document.querySelector("#leaderboardMetric"),
+  leaderboardFilter: document.querySelector("#leaderboardFilter"),
+  leaderboard: document.querySelector("#leaderboard"),
+  leaderboardPrevBtn: document.querySelector("#leaderboardPrevBtn"),
+  leaderboardNextBtn: document.querySelector("#leaderboardNextBtn"),
+  leaderboardPageIndicator: document.querySelector("#leaderboardPageIndicator"),
+  statsOverviewPage: document.querySelector("#statsOverviewPage"),
+  statsPlayersPage: document.querySelector("#statsPlayersPage"),
+  statsLeaderboardPage: document.querySelector("#statsLeaderboardPage"),
+  startAccountingBtn: document.querySelector("#startAccountingBtn"),
+  sessionSetupModal: document.querySelector("#sessionSetupModal"),
+  setupSessionNameInput: document.querySelector("#setupSessionNameInput"),
+  setupSessionDateInput: document.querySelector("#setupSessionDateInput"),
+  setupSessionLocationInput: document.querySelector("#setupSessionLocationInput"),
+  setupQuickStartInput: document.querySelector("#setupQuickStartInput"),
+  setupCollaborationInput: document.querySelector("#setupCollaborationInput"),
+  setupCollaborationFields: document.querySelector("#setupCollaborationFields"),
+  setupCollaborationNameInput: document.querySelector("#setupCollaborationNameInput"),
+  setupCollaborationShareInput: document.querySelector("#setupCollaborationShareInput"),
+  setupDealerShareEnabledInput: document.querySelector("#setupDealerShareEnabledInput"),
+  setupDealerShareField: document.querySelector("#setupDealerShareField"),
+  setupDealerShareInput: document.querySelector("#setupDealerShareInput"),
+  setupDealerNamesInput: document.querySelector("#setupDealerNamesInput"),
+  confirmSessionSetupBtn: document.querySelector("#confirmSessionSetupBtn"),
+  sessionInfoBar: document.querySelector("#sessionInfoBar"),
+  sessionInfoPanel: document.querySelector("#sessionInfoPanel"),
+  sessionMetaPrimary: document.querySelector("#sessionMetaPrimary"),
+  sessionMetaSecondary: document.querySelector("#sessionMetaSecondary"),
+  rebuyForm: document.querySelector("#rebuyForm"),
+  cashoutModal: document.querySelector("#cashoutModal"),
+  cashoutForm: document.querySelector("#cashoutForm"),
+  closeCashoutModalBtn: document.querySelector("#closeCashoutModalBtn"),
+  cashoutAmountInput: document.querySelector("#cashoutAmountInput"),
+  confirmCashoutBtn: document.querySelector("#confirmCashoutBtn"),
+  addPlayerForm: document.querySelector("#addPlayerForm"),
+  sessionSetupForm: document.querySelector("#sessionSetupForm"),
+  closeSessionSetupModalBtn: document.querySelector("#closeSessionSetupModalBtn"),
+  historySessionModal: document.querySelector("#historySessionModal"),
+  historySessionModalTitle: document.querySelector("#historySessionModalTitle"),
+  historySessionDetail: document.querySelector("#historySessionDetail"),
+  generateShareLinkBtn: document.querySelector("#generateShareLinkBtn"),
+  shareLinkStatus: document.querySelector("#shareLinkStatus"),
+  partnerShareWarning: document.querySelector("#partnerShareWarning"),
+};
+
+let activeHistorySessionId = "";
+let activeHistorySessionMode = "settlement";
+let activeHistorySettlementPlayerKey = "";
+let activeHistoryDetailPlayerKey = "";
+let activeHistoryPartnerKey = "";
+let activeCashoutPlayerId = "";
+
+const runtime = {
+  STORAGE_KEY,
+  CLIENT_ID_KEY,
+  DEFAULT_SYNC_TEXT,
+  config,
+  shareToken,
+  state,
+  authContext,
+  syncContext,
+  elements,
+  ensureDraftSession,
+  touchState,
+  cloneState,
+  normalizeRootState,
+  normalizeMeta,
+  normalizeSession,
+  renderHistorySessionDetail,
+  isSessionSettled,
+  escapeHtml,
+  formatCurrency,
+  formatSetupDate,
+  formatPercent,
+  calculateModernSharePercent,
+  getSessionDurationMs,
+  formatDuration,
+  renderPlayerRows,
+  renderPartnerRows,
+  renderFinancials,
+  renderHistory,
+  renderStats,
+  hasDraftActivity,
+};
+
+const authModule = createAuthModule(runtime);
+const syncModule = createSyncModule(runtime);
+const renderModule = createRenderModule(runtime);
+
+runtime.auth = authModule;
+runtime.sync = syncModule;
+runtime.render = renderModule;
+
+if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+  window.__ledgerDebug = {
+    state,
+    elements,
+    render,
+    saveState,
+    runSelfCheckLoop,
+  };
+}
+
+init();
+
+async function init() {
+  maybeLoadLocalDemoState();
+  ensureDraftSession();
+  bindEvents();
+  setSessionInfoCollapsed(window.matchMedia("(max-width: 720px)").matches);
+  render();
+  if (shareToken) {
+    await initializeShareView();
+    return;
+  }
+  await initializeSync();
+}
+
+function maybeLoadLocalDemoState() {
+  if (!isLocalDemoHost || demoMode !== "workbook") return;
+  const demoState = normalizeRootState(createWorkbookDemoState());
+  Object.keys(state).forEach((key) => delete state[key]);
+  Object.assign(state, demoState);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function bindEvents() {
+  bindDialogBackdropClose([
+    elements.rebuyModal,
+    elements.cashoutModal,
+    elements.addPlayerModal,
+    elements.sessionSetupModal,
+    elements.historySessionModal,
+    elements.gateLoginDialog,
+  ]);
+  elements.openGateLoginDialogBtn?.addEventListener("click", () => elements.gateLoginDialog?.showModal());
+  elements.closeGateLoginDialogBtn?.addEventListener("click", () => elements.gateLoginDialog?.close());
+  elements.gateLoginBtn?.addEventListener("click", loginWithPassword);
+  [elements.gateUsernameInput, elements.gatePasswordInput].forEach((input) => {
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loginWithPassword();
+      }
+    });
+  });
+  elements.signOutBtn?.addEventListener("click", signOutMember);
+  elements.generateShareLinkBtn?.addEventListener("click", generateShareLinkForActiveSession);
+  elements.startAccountingBtn.addEventListener("click", handleStartAccounting);
+  elements.confirmSessionSetupBtn.addEventListener("click", confirmSessionSetup);
+  elements.rebuyForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    confirmRebuy();
+  });
+  elements.rebuyForm.addEventListener("keydown", handleDialogEnter);
+  elements.addPlayerForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    confirmAddPlayer();
+  });
+  elements.addPlayerForm.addEventListener("keydown", handleDialogEnter);
+  elements.sessionSetupForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    confirmSessionSetup();
+  });
+  elements.sessionSetupForm.addEventListener("keydown", handleDialogEnter);
+  elements.closeSessionSetupModalBtn?.addEventListener("click", () => elements.sessionSetupModal.close());
+  elements.setupQuickStartInput?.addEventListener("change", updateSessionSetupVisibility);
+  elements.setupCollaborationInput?.addEventListener("change", updateSessionSetupVisibility);
+  elements.setupDealerShareEnabledInput?.addEventListener("change", updateSessionSetupVisibility);
+  document.querySelectorAll("[data-view-target]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!canAccessFullLedger()) {
+        focusAuth();
+        return;
+      }
+      state.ui.activeView = button.dataset.viewTarget;
+      saveState();
+      renderViews();
+    });
+  });
+
+  document.querySelector("#goHomeFromAccountingBtn").addEventListener("click", () => switchView("home"));
+  document.querySelector("#goHomeFromHistoryBtn").addEventListener("click", () => switchView("home"));
+  document.querySelector("#goHomeFromStatsBtn").addEventListener("click", () => switchView("home"));
+  elements.toggleSessionInfoBtn?.addEventListener("click", () => {
+    setSessionInfoCollapsed(!isSessionInfoCollapsed());
+  });
+
+  elements.addPlayerBtn.addEventListener("click", openAddPlayerModal);
+  elements.confirmAddPlayerBtn.addEventListener("click", confirmAddPlayer);
+  elements.closeAddPlayerModalBtn.addEventListener("click", () => elements.addPlayerModal.close());
+  elements.addPlayerNameInput.addEventListener("input", renderAddPlayerSuggestions);
+  elements.addPlayerSuggestions?.addEventListener("click", handleAddPlayerSuggestionClick);
+
+  elements.addPartnerBtn.addEventListener("click", () => {
+    state.draftSession.partners.push(createPartner());
+    saveState();
+    render();
+  });
+
+  elements.resetSessionBtn.addEventListener("click", () => {
+    state.draftSession = createDefaultDraftSession();
+    state.ui.expandedPlayerId = "";
+    saveState();
+    render();
+  });
+
+  elements.openRebuyModalBtn.addEventListener("click", openRebuyModal);
+  elements.confirmRebuyBtn.addEventListener("click", confirmRebuy);
+  elements.closeRebuyModalBtn.addEventListener("click", () => elements.rebuyModal.close());
+  elements.confirmCashoutBtn.addEventListener("click", confirmCashout);
+  elements.closeCashoutModalBtn.addEventListener("click", () => {
+    activeCashoutPlayerId = "";
+    elements.cashoutModal.close();
+  });
+  elements.cashoutModal.addEventListener("close", () => {
+    activeCashoutPlayerId = "";
+    elements.cashoutAmountInput.value = "";
+  });
+  elements.cashoutForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    confirmCashout();
+  });
+  elements.cashoutForm.addEventListener("keydown", handleDialogEnter);
+
+  elements.enterSettlementBtn.addEventListener("click", () => {
+    if (!getNamedDraftPlayers().length || sum(getNamedDraftPlayers().map(getPlayerBuyInTotal)) <= 0) {
+      alert("请先记录玩家 buyin，再进入结算。");
+      return;
+    }
+    const pendingCashoutPlayers = getNamedDraftPlayers().filter((player) => !player.cashOutRecorded);
+    if (pendingCashoutPlayers.length) {
+      alert(`以下玩家还没完成 Cash Out，不能进入结算：${pendingCashoutPlayers.map((player) => player.name).join("、")}`);
+      return;
+    }
+    finalizeLiveSession();
+    state.draftSession.stage = "settlement";
+    state.ui.expandedPlayerId = "";
+    saveState();
+    render();
+  });
+
+  elements.returnLiveBtn.addEventListener("click", () => {
+    resumeLiveSession();
+    state.draftSession.stage = "live";
+    state.ui.expandedPlayerId = "";
+    saveState();
+    render();
+  });
+
+  elements.sessionForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveSession();
+  });
+
+  [
+    [elements.sessionName, "name", "string"],
+    [elements.sessionDate, "date", "string"],
+    [elements.sessionLocation, "location", "string"],
+    [elements.dealerNames, "dealerNames", "string"],
+    [elements.collaborationName, "collaborationName", "string"],
+    [elements.sessionDuration, "durationHours", "number"],
+    [elements.sessionNotes, "notes", "string"],
+    [elements.dealerFee, "dealerFee", "number"],
+    [elements.dealerSharePercent, "dealerSharePercent", "number"],
+    [elements.collaborationSharePercent, "collaborationSharePercent", "number"],
+  ].forEach(([element, key, type]) => {
+    element.addEventListener("input", () => {
+      state.draftSession[key] = type === "number" ? toNumber(element.value) : element.value.trim();
+      saveState();
+    });
+    element.addEventListener("change", () => {
+      state.draftSession[key] = type === "number" ? toNumber(element.value) : element.value.trim();
+      saveState();
+      render();
+    });
+  });
+
+  elements.playerInsightSelect.addEventListener("change", renderPlayerInsight);
+  elements.leaderboardMetric.addEventListener("change", () => {
+    state.ui.leaderboardPage = 1;
+    saveState();
+    renderLeaderboard();
+  });
+  elements.leaderboardFilter.addEventListener("input", () => {
+    state.ui.leaderboardPage = 1;
+    saveState();
+    renderLeaderboard();
+  });
+  elements.leaderboardPrevBtn?.addEventListener("click", () => {
+    state.ui.leaderboardPage = Math.max((state.ui.leaderboardPage || 1) - 1, 1);
+    saveState();
+    renderLeaderboard();
+  });
+  elements.leaderboardNextBtn?.addEventListener("click", () => {
+    state.ui.leaderboardPage = (state.ui.leaderboardPage || 1) + 1;
+    saveState();
+    renderLeaderboard();
+  });
+  elements.statsView?.addEventListener("click", handleStatsTabClick);
+  elements.historySettlementFilter?.addEventListener("change", renderHistory);
+  elements.sessionList.addEventListener("click", handleHistoryActions);
+  elements.historySessionDetail.addEventListener("click", handleHistorySessionActions);
+  elements.debtSummary?.addEventListener("change", handleDebtSummaryInteractions);
+  elements.debtSummary?.addEventListener("click", handleDebtSummaryInteractions);
+  elements.mergePlayersBtn?.addEventListener("click", mergePlayers);
+  elements.mergeSourcePlayerSelect?.addEventListener("change", () => {
+    const selected = state.players.find((player) => player.id === elements.mergeSourcePlayerSelect.value);
+    if (selected) {
+      elements.mergeTargetPlayerInput.value = selected.name;
+    }
+  });
+
+  elements.createPlayerBtn.addEventListener("click", () => {
+    const name = elements.newPlayerName.value.trim();
+    if (!name) return;
+    upsertPlayer(name);
+    elements.newPlayerName.value = "";
+    saveState();
+    renderStats();
+  });
+}
+
+function isSessionInfoCollapsed() {
+  return elements.sessionInfoPanel?.hidden !== false;
+}
+
+function setSessionInfoCollapsed(collapsed) {
+  if (elements.sessionInfoPanel) {
+    elements.sessionInfoPanel.hidden = collapsed;
+  }
+  if (elements.toggleSessionInfoBtn) {
+    elements.toggleSessionInfoBtn.setAttribute("aria-expanded", String(!collapsed));
+    elements.toggleSessionInfoBtn.textContent = collapsed ? "基础信息" : "收起信息";
+  }
+}
+
+function switchView(view) {
+  if (!canAccessFullLedger()) {
+    focusAuth();
+    return;
+  }
+  state.ui.activeView = view;
+  saveState();
+  renderViews();
+}
+
+function bindDialogBackdropClose(dialogs) {
+  dialogs.filter(Boolean).forEach((dialog) => {
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) {
+        dialog.close();
+      }
+    });
+  });
+}
+
+function handleDialogEnter(event) {
+  if (event.key !== "Enter" || event.target.tagName === "TEXTAREA") return;
+  event.preventDefault();
+  event.currentTarget.requestSubmit();
+}
+
+function createDefaultDraftSession() {
+  return {
+    name: "Modern Casino",
+    date: getNewYorkNowLocalInput(),
+    location: "Fort lee",
+    collaboration: "No",
+    collaborationName: "",
+    collaborationSharePercent: 0,
+    dealerShareEnabled: "No",
+    dealerSharePercent: 0,
+    dealerNames: "",
+    durationHours: 0,
+    notes: "",
+    stage: "live",
+    dealerFee: 0,
+    startedAt: "",
+    endedAt: "",
+    players: [],
+    partners: createDefaultPartners(),
+  };
+}
+
+function handleStartAccounting() {
+  if (hasDraftActivity()) {
+    switchView("accounting");
+    return;
+  }
+  openSessionSetupModal();
+}
+
+function createDraftPlayer() {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    buyIns: [],
+    cashOuts: [],
+    cashOut: 0,
+    cashOutRecorded: false,
+    insuranceProfit: 0,
+    startedAt: "",
+    endedAt: "",
+    totalPlayMs: 0,
+    exited: false,
+    pausedForSettlement: false,
+    settlementStatus: "pending",
+    settledAmount: 0,
+    coverAmount: 0,
+    remainingAmount: 0,
+    partnerName: "",
+  };
+}
+
+function createPartner(seed = "") {
+  return {
+    id: crypto.randomUUID(),
+    name: seed ? `${seed}合伙人` : "",
+    sharePercent: 0,
+    cost: 0,
+    manualAdvance: 0,
+    advance: 0,
+  };
+}
+
+function createDefaultPartners() {
+  return [
+    createPartnerWithShare("Blue", 39.6),
+    createPartnerWithShare("项往", 29.7),
+    createPartnerWithShare("JW", 29.7),
+    createPartnerWithShare("Kanye", 1),
+  ];
+}
+
+function createPartnerWithShare(name, sharePercent) {
+  const partner = createPartner();
+  partner.name = name;
+  partner.sharePercent = sharePercent;
+  return partner;
+}
+
+function ensureDraftSession() {
+  state.meta = normalizeMeta(state.meta);
+  state.ui = {
+    activeView: state.ui?.activeView || "home",
+    expandedPlayerId: state.ui?.expandedPlayerId || "",
+    expandedHistorySettlementPlayerKey: state.ui?.expandedHistorySettlementPlayerKey || "",
+    statsTab: state.ui?.statsTab || "overview",
+    leaderboardPage: Math.max(Number(state.ui?.leaderboardPage) || 1, 1),
+    debtDateFilter: String(state.ui?.debtDateFilter || "all"),
+    debtDateStart: String(state.ui?.debtDateStart || ""),
+    debtDateEnd: String(state.ui?.debtDateEnd || ""),
+    debtSessionFilter: String(state.ui?.debtSessionFilter || "all"),
+  };
+  state.draftSession = normalizeDraftSession(state.draftSession);
+  state.sessions = Array.isArray(state.sessions) ? state.sessions.map(normalizeSession) : [];
+  state.deletedSessions = Array.isArray(state.deletedSessions) ? state.deletedSessions.map(normalizeDeletedSessionEntry).filter(Boolean) : [];
+  purgeExpiredDeletedSessions();
+  state.players = Array.isArray(state.players)
+    ? state.players
+        .map((player) => ({ ...player, id: player.id || crypto.randomUUID(), name: String(player.name || "").trim() }))
+        .filter((player) => player.name)
+    : [];
+}
+
+function normalizeMeta(meta) {
+  return {
+    revision: Math.max(0, Number(meta?.revision) || 0),
+    updatedAt: typeof meta?.updatedAt === "string" && meta.updatedAt ? meta.updatedAt : "",
+    updatedBy: typeof meta?.updatedBy === "string" ? meta.updatedBy : "",
+  };
+}
+
+function normalizeDraftSession(draft) {
+  const fallback = createDefaultDraftSession();
+  if (!draft || typeof draft !== "object") return fallback;
+  return {
+    ...fallback,
+    ...draft,
+    durationHours: toNumber(draft.durationHours ?? fallback.durationHours),
+    dealerFee: toNumber(draft.dealerFee ?? fallback.dealerFee),
+    collaboration: draft.collaboration === "Yes" ? "Yes" : "No",
+    collaborationName: String(draft.collaborationName || ""),
+    collaborationSharePercent: toNumber(draft.collaborationSharePercent ?? fallback.collaborationSharePercent),
+    dealerShareEnabled: draft.dealerShareEnabled === "Yes" ? "Yes" : "No",
+    dealerSharePercent: toNumber(draft.dealerSharePercent ?? fallback.dealerSharePercent),
+    dealerNames: String(draft.dealerNames || ""),
+    stage: draft.stage === "settlement" ? "settlement" : "live",
+    players: Array.isArray(draft.players) && draft.players.length ? draft.players.map(normalizeDraftPlayer) : fallback.players,
+    partners: Array.isArray(draft.partners) && draft.partners.length ? draft.partners.map(normalizePartner) : fallback.partners,
+  };
+}
+
+function normalizeDraftPlayer(player) {
+  return {
+    id: player.id || crypto.randomUUID(),
+    name: String(player.name || "").trim(),
+    buyIns: Array.isArray(player.buyIns) ? player.buyIns.map(toNumber).filter((value) => value > 0) : [],
+    cashOuts: Array.isArray(player.cashOuts) ? player.cashOuts.map(toNumber).filter((value) => value > 0) : [],
+    cashOut: toNumber(player.cashOut),
+    cashOutRecorded: Boolean(player.cashOutRecorded) || toNumber(player.cashOut) > 0,
+    insuranceProfit: toNumber(player.insuranceProfit),
+    startedAt: String(player.startedAt || ""),
+    endedAt: String(player.endedAt || ""),
+    totalPlayMs: toNumber(player.totalPlayMs),
+    exited: Boolean(player.exited),
+    pausedForSettlement: Boolean(player.pausedForSettlement),
+    settlementStatus: ["pending", "partial", "settled"].includes(player.settlementStatus) ? player.settlementStatus : "pending",
+    settledAmount: toNumber(player.settledAmount),
+    coverAmount: toNumber(player.coverAmount),
+    remainingAmount: toNumber(player.remainingAmount),
+    partnerName: String(player.partnerName || "").trim(),
+  };
+}
+
+function normalizePartner(partner) {
+  return {
+    id: partner.id || crypto.randomUUID(),
+    name: String(partner.name || "").trim(),
+    sharePercent: toNumber(partner.sharePercent),
+    cost: toNumber(partner.cost),
+    manualAdvance: toNumber(partner.manualAdvance ?? partner.advance),
+    advance: toNumber(partner.advance),
+  };
+}
+
+function normalizeSession(session) {
+  const normalized = {
+    ...session,
+    dealerFee: toNumber(session.dealerFee),
+    dealerSharePercent: toNumber(session.dealerSharePercent),
+    collaborationSharePercent: toNumber(session.collaborationSharePercent),
+    totalBuyIn: toNumber(session.totalBuyIn),
+    totalCashOut: toNumber(session.totalCashOut),
+    totalCover: toNumber(session.totalCover),
+    totalCosts: toNumber(session.totalCosts),
+    netProfit: toNumber(session.netProfit),
+    players: Array.isArray(session.players)
+      ? session.players.map((player) => ({
+          ...player,
+          cashOut: toNumber(player.cashOut),
+          profit: toNumber(player.profit),
+          settledAmount: toNumber(player.settledAmount),
+          coverAmount: toNumber(player.coverAmount),
+          remainingAmount: toNumber(player.remainingAmount),
+          debtTrackerBaselineSettledAmount: toNumber(player.debtTrackerBaselineSettledAmount),
+        }))
+      : [],
+    partners: Array.isArray(session.partners)
+      ? session.partners.map((partner) => ({
+          ...partner,
+          sharePercent: toNumber(partner.sharePercent),
+          cost: toNumber(partner.cost),
+          manualAdvance: toNumber(partner.manualAdvance ?? partner.advance),
+          advance: toNumber(partner.advance),
+          profitShare: toNumber(partner.profitShare),
+          playerProfit: toNumber(partner.playerProfit),
+          finalAmount: toNumber(partner.finalAmount),
+        }))
+      : [],
+  };
+  return recomputeSavedSession(normalized);
+}
+
+function normalizeDeletedSessionEntry(entry) {
+  if (!entry?.session) return null;
+  const deletedAt = String(entry.deletedAt || "");
+  const restoreBefore = entry.restoreBefore || (deletedAt ? new Date(new Date(deletedAt).getTime() + TRASH_RETENTION_MS).toISOString() : "");
+  if (!restoreBefore || new Date(restoreBefore).getTime() <= Date.now()) return null;
+  return {
+    id: entry.id || entry.session.id || crypto.randomUUID(),
+    deletedAt,
+    restoreBefore,
+    session: normalizeSession(entry.session),
+  };
+}
+
+function loadState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try {
+      return normalizeRootState(JSON.parse(raw));
+    } catch (error) {
+      console.warn("parse storage failed", error);
+    }
+  }
+  return createEmptyState();
+}
+
+function saveState(options = {}) {
+  purgeExpiredDeletedSessions();
+  if (!options.skipTouch) {
+    touchState();
+  }
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (!options.skipRemote) {
+    queueRemoteSync();
+  }
+}
+
+function createEmptyState() {
+  return normalizeRootState({
+    ui: {
+      activeView: "home",
+      expandedPlayerId: "",
+      expandedHistorySettlementPlayerKey: "",
+      statsTab: "overview",
+      leaderboardPage: 1,
+      debtDateFilter: "all",
+      debtDateStart: "",
+      debtDateEnd: "",
+      debtSessionFilter: "all",
+    },
+    draftSession: createDefaultDraftSession(),
+    sessions: [],
+    deletedSessions: [],
+    players: [],
+    meta: { revision: 0, updatedAt: "", updatedBy: "" },
+  });
+}
+
+function normalizeRootState(raw) {
+  return {
+    ui: {
+      activeView: raw?.ui?.activeView || "home",
+      expandedPlayerId: raw?.ui?.expandedPlayerId || "",
+      expandedHistorySettlementPlayerKey: raw?.ui?.expandedHistorySettlementPlayerKey || "",
+      statsTab: raw?.ui?.statsTab || "overview",
+      leaderboardPage: Math.max(Number(raw?.ui?.leaderboardPage) || 1, 1),
+      debtDateFilter: String(raw?.ui?.debtDateFilter || "all"),
+      debtDateStart: String(raw?.ui?.debtDateStart || ""),
+      debtDateEnd: String(raw?.ui?.debtDateEnd || ""),
+      debtSessionFilter: String(raw?.ui?.debtSessionFilter || "all"),
+    },
+    draftSession: raw?.draftSession || createDefaultDraftSession(),
+    sessions: Array.isArray(raw?.sessions) ? raw.sessions : [],
+    deletedSessions: Array.isArray(raw?.deletedSessions) ? raw.deletedSessions : [],
+    players: Array.isArray(raw?.players) ? raw.players : [],
+    meta: normalizeMeta(raw?.meta),
+  };
+}
+
+function touchState() {
+  state.meta = normalizeMeta(state.meta);
+  state.meta.revision += 1;
+  state.meta.updatedAt = new Date().toISOString();
+  state.meta.updatedBy = syncContext.clientId;
+}
+
+function canAccessFullLedger() {
+  return authModule.canAccessFullLedger();
+}
+
+function focusAuth() {
+  return authModule.focusAuth();
+}
+
+function queueRemoteSync() {
+  return syncModule.queueRemoteSync();
+}
+
+async function initializeSync() {
+  return syncModule.initializeSync();
+}
+
+async function connectAuthorizedWorkspace() {
+  return syncModule.connectAuthorizedWorkspace();
+}
+
+async function teardownSyncManager() {
+  return syncModule.teardownSyncManager();
+}
+
+function createSupabaseManager() {
+  return syncModule.createSupabaseManager();
+}
+
+async function initializeAuth() {
+  return authModule.initializeAuth();
+}
+
+async function fetchMembership(user) {
+  return authModule.fetchMembership(user);
+}
+
+async function resolveLoginEmail(identifier) {
+  return authModule.resolveLoginEmail(identifier);
+}
+
+async function loginWithPassword() {
+  return authModule.loginWithPassword();
+}
+
+async function signOutMember() {
+  return authModule.signOutMember();
+}
+
+async function initializeShareView() {
+  return syncModule.initializeShareView();
+}
+
+async function pushRemoteState(snapshot) {
+  return syncModule.pushRemoteState(snapshot);
+}
+
+function applyRemoteState(remoteState) {
+  return syncModule.applyRemoteState(remoteState);
+}
+
+function replaceState(nextState) {
+  return syncModule.replaceState(nextState);
+}
+
+function isIncomingStateNewer(incoming, current) {
+  return syncModule.isIncomingStateNewer(incoming, current);
+}
+
+function cloneState(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function setSyncStatus(status, text) {
+  return syncModule.setSyncStatus(status, text);
+}
+
+function renderSyncStatus() {
+  return syncModule.renderSyncStatus();
+}
+
+function renderAuthState() {
+  return authModule.renderAuthState();
+}
+
+function setAuthStatus(status, text) {
+  return authModule.setAuthStatus(status, text);
+}
+
+function getSyncStatusLabel(status) {
+  return syncModule.getSyncStatusLabel(status);
+}
+
+function formatSyncTime(value) {
+  return syncModule.formatSyncTime(value);
+}
+
+function normalizeConfig(raw) {
+  return {
+    syncProvider: raw?.syncProvider === "supabase" ? "supabase" : "local",
+    supabaseUrl: String(raw?.supabaseUrl || "").trim(),
+    supabaseAnonKey: String(raw?.supabaseAnonKey || "").trim(),
+    supabaseTable: String(raw?.supabaseTable || "workspace_state").trim(),
+    shareTable: String(raw?.shareTable || "session_shares").trim(),
+    workspaceMembersTable: String(raw?.workspaceMembersTable || "workspace_members").trim(),
+    workspaceId: String(raw?.workspaceId || "modern-casino").trim(),
+    siteTitle: String(raw?.siteTitle || "Modern 扑克账本").trim(),
+  };
+}
+
+function normalizeSandboxId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function getOrCreateClientId() {
+  const existing = localStorage.getItem(CLIENT_ID_KEY);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(CLIENT_ID_KEY, created);
+  return created;
+}
+
+function render() {
+  if (state.ui.activeView !== "accounting" && window.matchMedia("(max-width: 720px)").matches) {
+    setSessionInfoCollapsed(true);
+  }
+  return renderModule.render();
+}
+
+function renderViews() {
+  return renderModule.renderViews();
+}
+
+function syncDraftFields() {
+  return renderModule.syncDraftFields();
+}
+
+function syncTimer() {
+  return renderModule.syncTimer();
+}
+
+function updateTimerDisplay() {
+  return renderModule.updateTimerDisplay();
+}
+
+function renderPlayerRows() {
+  elements.playerRows.innerHTML = "";
+  renderPlayerSuggestions();
+
+  const partnerOptions = getPartnerNames();
+
+  if (!state.draftSession.players.length) {
+    elements.playerRows.innerHTML = `<div class="empty-state">当前还没有玩家，点击“加入玩家”开始记录第一位玩家。</div>`;
+    return;
+  }
+
+  state.draftSession.players.forEach((player, index) => {
+    const fragment = elements.playerTemplate.content.cloneNode(true);
+    fragment.querySelector(".row-index").textContent = player.name || `玩家 ${index + 1}`;
+
+    const nameInput = fragment.querySelector(".player-name");
+    const buyinTotal = fragment.querySelector(".player-buyin-total");
+    const buyinCount = fragment.querySelector(".player-buyin-count");
+    const buyinEntry = fragment.querySelector(".player-buyin-entry");
+    const addBuyinBtn = fragment.querySelector(".add-buyin");
+    const liveCashoutInput = fragment.querySelector(".player-live-cashout");
+    const confirmLiveCashoutBtn = fragment.querySelector(".confirm-live-cashout");
+    const buyinHistory = fragment.querySelector(".buyin-history");
+    const playtimeDisplay = fragment.querySelector(".player-playtime");
+    const partnerSelect = fragment.querySelector(".player-partner-select");
+    const settledAmountInput = fragment.querySelector(".player-settled-amount");
+    const coverAmountInput = fragment.querySelector(".player-cover-amount");
+    const removeBtn = fragment.querySelector(".remove-player");
+    const settlementFields = fragment.querySelectorAll(".settlement-fields");
+    const liveGrid = fragment.querySelector(".player-live-grid");
+    const cardToggle = fragment.querySelector(".player-card-toggle");
+    const details = fragment.querySelector(".player-card-details");
+    const summaryBuyinInline = fragment.querySelector(".player-summary-inline-buyin");
+    const summaryCashoutInline = fragment.querySelector(".player-summary-inline-cashout");
+    const summaryRebuyBtn = fragment.querySelector(".summary-rebuy-action");
+    const summaryCashoutTrigger = fragment.querySelector(".summary-cashout-trigger");
+    const settlementBadge = fragment.querySelector(".player-settlement-badge");
+    const resumeBtn = fragment.querySelector(".resume-player");
+    const article = fragment.querySelector(".player-row");
+    const playerCashOutTotal = getPlayerCashOutTotal(player);
+    const cashoutHistory = fragment.querySelector(".cashout-history");
+
+    nameInput.value = player.name;
+    buyinTotal.textContent = formatCurrency(getPlayerBuyInTotal(player));
+    buyinCount.textContent = `${player.buyIns.length}`;
+    playtimeDisplay.textContent = formatDuration(getPlayerPlayMs(player));
+    liveCashoutInput.value = "";
+    settledAmountInput.value = player.settledAmount;
+    coverAmountInput.value = player.coverAmount || 0;
+    partnerSelect.innerHTML = `${partnerOptions
+      .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+      .join("")}`;
+    const defaultPartnerName = partnerOptions.includes("Blue") ? "Blue" : partnerOptions[0] || "";
+    partnerSelect.value = player.partnerName || defaultPartnerName;
+
+    const settlementMode = state.draftSession.stage === "settlement";
+    const playerBuyinTotal = getPlayerBuyInTotal(player);
+    const playerProfit = getPlayerProfit(player);
+    coverAmountInput.disabled = playerProfit >= 0;
+    if (player.cashOutRecorded) {
+      summaryBuyinInline.textContent = formatCurrency(playerProfit);
+      summaryBuyinInline.className = `player-summary-inline-buyin player-summary-inline-profit ${playerProfit >= 0 ? "positive" : "negative"}`;
+    } else {
+      summaryBuyinInline.textContent = `总 Buyin ${formatCurrency(playerBuyinTotal)}`;
+      summaryBuyinInline.className = "player-summary-inline-buyin";
+    }
+    summaryCashoutInline.textContent = player.exited || settlementMode
+      ? `盈利 ${formatCurrency(playerProfit)} · 游戏时间 ${formatDuration(getPlayerPlayMs(player))} · Cash Out ${
+          player.cashOutRecorded ? formatCurrency(playerCashOutTotal) : "无"
+        }`
+      : "";
+    const settlementExpanded = settlementMode && state.ui.expandedPlayerId === player.id;
+    const expanded = settlementExpanded || (state.ui.expandedPlayerId === player.id && !player.exited && !settlementMode);
+    const compactMode = (player.exited && !settlementMode) || (settlementMode && !settlementExpanded);
+    article.classList.toggle("player-row-compact", compactMode);
+    article.classList.toggle("player-row-settlement", settlementMode);
+    liveGrid.hidden = compactMode || settlementMode;
+    settlementFields.forEach((section) => {
+      section.hidden = !settlementExpanded;
+    });
+    details.hidden = !expanded;
+    if (summaryRebuyBtn) {
+      summaryRebuyBtn.hidden = compactMode ? !settlementMode : false;
+      summaryRebuyBtn.textContent = settlementMode ? (settlementExpanded ? "收起结账" : "结账") : "Rebuy";
+    }
+    if (summaryCashoutTrigger) summaryCashoutTrigger.hidden = compactMode || settlementMode;
+    resumeBtn.hidden = !(player.exited && !settlementMode);
+    if (settlementBadge) {
+      settlementBadge.hidden = !settlementMode;
+      settlementBadge.textContent = settlementLabel(player.settlementStatus);
+      settlementBadge.className = `player-settlement-badge ${player.settlementStatus}`;
+    }
+
+    buyinHistory.innerHTML = player.buyIns.length
+      ? player.buyIns
+          .map(
+            (amount, chipIndex) =>
+              `<button class="buyin-chip" data-chip-index="${chipIndex}" type="button">${formatCurrency(amount)} <span>移除</span></button>`
+          )
+          .join("")
+      : `<span class="empty-inline">还没有 buyin / rebuy 记录</span>`;
+    buyinHistory.hidden = settlementMode;
+    cashoutHistory.innerHTML = player.cashOuts?.length
+      ? player.cashOuts
+          .map(
+            (amount, cashoutIndex) =>
+              `<button class="buyin-chip" data-cashout-index="${cashoutIndex}" type="button">${formatCurrency(amount)} <span>撤销 Cash Out</span></button>`
+          )
+          .join("")
+      : "";
+    cashoutHistory.hidden = !(player.cashOuts?.length);
+
+    const handlePlayerIdentityInput = () => {
+      player.name = nameInput.value.trim();
+      saveState();
+    };
+
+    cardToggle.addEventListener("click", () => {
+      if (compactMode || settlementMode) return;
+      state.ui.expandedPlayerId = state.ui.expandedPlayerId === player.id ? "" : player.id;
+      saveState();
+      renderPlayerRows();
+    });
+
+    nameInput.addEventListener("input", handlePlayerIdentityInput);
+    nameInput.addEventListener("change", () => {
+      handlePlayerIdentityInput();
+      render();
+    });
+
+    addBuyinBtn.addEventListener("click", () => {
+      const amount = toNumber(buyinEntry.value);
+      if (amount <= 0) return;
+      ensureSessionStarted();
+      ensurePlayerStarted(player);
+      player.buyIns.push(amount);
+      buyinEntry.value = "";
+      saveState();
+      render();
+    });
+
+    buyinEntry.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        addBuyinBtn.click();
+      }
+    });
+
+    buyinHistory.querySelectorAll(".buyin-chip").forEach((button) => {
+      button.addEventListener("click", () => {
+        player.buyIns.splice(Number(button.dataset.chipIndex), 1);
+        saveState();
+        render();
+      });
+    });
+    cashoutHistory.querySelectorAll("[data-cashout-index]").forEach((button) => {
+      button.addEventListener("click", () => {
+        removeDraftCashoutEntry(player, Number(button.dataset.cashoutIndex));
+        saveState();
+        render();
+      });
+    });
+
+    confirmLiveCashoutBtn.addEventListener("click", () => {
+      const amount = toNumber(liveCashoutInput.value);
+      if (amount <= 0) return;
+      recordPlayerCashout(player, amount);
+      saveState();
+      render();
+    });
+
+    summaryRebuyBtn?.addEventListener("click", () => {
+      if (settlementMode) {
+        state.ui.expandedPlayerId = settlementExpanded ? "" : player.id;
+        saveState();
+        renderPlayerRows();
+        if (!settlementExpanded) {
+          requestAnimationFrame(() => {
+            const currentPlayerCards = Array.from(elements.playerRows.querySelectorAll(".player-row"));
+            const currentCard = currentPlayerCards[index];
+            const settledField = currentCard?.querySelector(".player-settled-amount");
+            settledField?.focus();
+          });
+        }
+        return;
+      }
+      elements.rebuyPlayerSelect.value = player.id;
+      openRebuyModal();
+    });
+
+    summaryCashoutTrigger?.addEventListener("click", () => {
+      activeCashoutPlayerId = player.id;
+      elements.cashoutAmountInput.value = String(player.cashOutRecorded ? playerCashOutTotal : "");
+      elements.cashoutModal.showModal();
+      requestAnimationFrame(() => elements.cashoutAmountInput.focus());
+    });
+
+    resumeBtn.addEventListener("click", () => {
+      resumePlayer(player);
+      state.ui.expandedPlayerId = "";
+      saveState();
+      render();
+    });
+
+    const syncSettlementDraft = () => {
+      const profit = getPlayerProfit(player);
+      const settledAmount = Math.max(toNumber(settledAmountInput.value), 0);
+      const coverAmount = profit < 0 ? Math.min(Math.max(toNumber(coverAmountInput.value), 0), Math.abs(profit)) : 0;
+      const obligation = getSettlementObligation({ ...player, coverAmount }, profit);
+      player.partnerName = partnerSelect.value || defaultPartnerName;
+      player.settledAmount = settledAmount;
+      player.coverAmount = coverAmount;
+      player.remainingAmount = obligation > 0 ? Math.max(obligation - settledAmount, 0) : 0;
+      player.settlementStatus =
+        obligation <= 0.009
+          ? "settled"
+          : settledAmount >= Math.max(obligation - 0.009, 0) && settledAmount > 0
+          ? "settled"
+          : settledAmount > 0
+          ? "partial"
+          : "pending";
+    };
+
+    settledAmountInput.addEventListener("input", () => {
+      syncSettlementDraft();
+      saveState();
+    });
+    settledAmountInput.addEventListener("change", () => {
+      syncSettlementDraft();
+      saveState();
+      render();
+    });
+    partnerSelect.addEventListener("change", () => {
+      syncSettlementDraft();
+      saveState();
+      render();
+    });
+    coverAmountInput.addEventListener("input", () => {
+      syncSettlementDraft();
+      saveState();
+    });
+    coverAmountInput.addEventListener("change", () => {
+      syncSettlementDraft();
+      saveState();
+      render();
+    });
+
+    removeBtn.addEventListener("click", () => {
+      state.draftSession.players = state.draftSession.players.filter((item) => item.id !== player.id);
+      saveState();
+      render();
+    });
+
+    elements.playerRows.appendChild(fragment);
+  });
+}
+
+function renderPlayerSuggestions() {
+  const names = getAllKnownPlayerNames();
+  elements.playerSuggestions.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
+  if (elements.mergeTargetPlayerInput && document.activeElement !== elements.mergeTargetPlayerInput) {
+    const selectedSource = elements.mergeSourcePlayerSelect?.value || "";
+    const sourcePlayer = state.players.find((player) => player.id === selectedSource);
+    if (!elements.mergeTargetPlayerInput.value.trim() && sourcePlayer) {
+      elements.mergeTargetPlayerInput.value = sourcePlayer.name;
+    }
+  }
+}
+
+function renderAddPlayerSuggestions() {
+  if (!elements.addPlayerSuggestions) return;
+  const query = elements.addPlayerNameInput.value.trim().toLowerCase();
+  const matches = getAllKnownPlayerNames()
+    .filter((name) => !query || name.toLowerCase().includes(query))
+    .slice(0, 8);
+  if (!matches.length || !query) {
+    elements.addPlayerSuggestions.hidden = true;
+    elements.addPlayerSuggestions.innerHTML = "";
+    return;
+  }
+  elements.addPlayerSuggestions.hidden = false;
+  elements.addPlayerSuggestions.innerHTML = matches
+    .map(
+      (name) =>
+        `<button class="suggestion-item" type="button" data-player-name="${escapeHtml(name)}">${escapeHtml(
+          name
+        )}</button>`
+    )
+    .join("");
+}
+
+function handleAddPlayerSuggestionClick(event) {
+  const button = event.target.closest("[data-player-name]");
+  if (!button) return;
+  elements.addPlayerNameInput.value = button.dataset.playerName || "";
+  elements.addPlayerSuggestions.hidden = true;
+  elements.addPlayerSuggestions.innerHTML = "";
+}
+
+function renderPartnerRows() {
+  elements.partnerRows.innerHTML = "";
+  const partnerShareTotal = sum(state.draftSession.partners.map((partner) => partner.sharePercent));
+  const shareIsValid = Math.abs(partnerShareTotal - 100) < 0.01;
+  if (elements.partnerShareWarning) {
+    elements.partnerShareWarning.hidden = shareIsValid;
+    elements.partnerShareWarning.textContent = shareIsValid ? "" : "股份加总有误";
+  }
+
+  state.draftSession.partners.forEach((partner) => {
+    const fragment = elements.partnerTemplate.content.cloneNode(true);
+    const nameInput = fragment.querySelector(".partner-name");
+    const shareInput = fragment.querySelector(".partner-share");
+    const costInput = fragment.querySelector(".partner-cost");
+    const advanceInput = fragment.querySelector(".partner-advance");
+    const removeBtn = fragment.querySelector(".remove-partner");
+
+    nameInput.value = partner.name;
+    shareInput.value = partner.sharePercent;
+    costInput.value = partner.cost;
+    advanceInput.value = partner.manualAdvance ?? partner.advance;
+
+    const syncPartnerDraft = () => {
+      partner.name = nameInput.value.trim();
+      partner.sharePercent = toNumber(shareInput.value);
+      partner.cost = toNumber(costInput.value);
+      partner.manualAdvance = toNumber(advanceInput.value);
+      partner.advance = partner.manualAdvance;
+    };
+
+    [nameInput, shareInput, costInput, advanceInput].forEach((input) => {
+      input.addEventListener("input", () => {
+        syncPartnerDraft();
+        saveState();
+      });
+      input.addEventListener("change", () => {
+        syncPartnerDraft();
+        saveState();
+        render();
+      });
+    });
+
+    removeBtn.addEventListener("click", () => {
+      state.draftSession.partners = state.draftSession.partners.filter((item) => item.id !== partner.id);
+      if (!state.draftSession.partners.length) state.draftSession.partners = [createPartner("甲")];
+      saveState();
+      render();
+    });
+
+    elements.partnerRows.appendChild(fragment);
+  });
+}
+
+function renderRebuyOptions() {
+  const options = getActiveDraftPlayers()
+    .map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
+    .join("");
+  elements.rebuyPlayerSelect.innerHTML = options;
+}
+
+function openRebuyModal() {
+  renderRebuyOptions();
+  if (!elements.rebuyPlayerSelect.options.length) {
+    alert("请先添加玩家后再记录 rebuy。");
+    return;
+  }
+  elements.rebuyAmountInput.value = "";
+  elements.rebuyModal.showModal();
+}
+
+function confirmRebuy() {
+  const player = state.draftSession.players.find((item) => item.id === elements.rebuyPlayerSelect.value);
+  const amount = toNumber(elements.rebuyAmountInput.value);
+  if (!player || amount <= 0) return;
+  ensureSessionStarted();
+  ensurePlayerStarted(player);
+  player.buyIns.push(amount);
+  saveState();
+  elements.rebuyModal.close();
+  render();
+}
+
+function confirmCashout() {
+  const player = state.draftSession.players.find((item) => item.id === activeCashoutPlayerId);
+  const rawAmount = String(elements.cashoutAmountInput.value ?? "").trim();
+  if (!player || rawAmount === "") return;
+  const amount = toNumber(rawAmount);
+  if (amount < 0) return;
+  recordPlayerCashout(player, amount);
+  activeCashoutPlayerId = "";
+  saveState();
+  elements.cashoutModal.close();
+  render();
+}
+
+function openAddPlayerModal() {
+  elements.addPlayerNameInput.value = "";
+  elements.addPlayerBuyinInput.value = "3000";
+  renderAddPlayerSuggestions();
+  elements.addPlayerModal.showModal();
+}
+
+function confirmAddPlayer() {
+  const name = elements.addPlayerNameInput.value.trim();
+  const buyin = toNumber(elements.addPlayerBuyinInput.value);
+  if (!name || buyin <= 0) return;
+  const player = createDraftPlayer();
+  player.name = name;
+  ensureSessionStarted();
+  ensurePlayerStarted(player);
+  player.buyIns.push(buyin);
+  state.draftSession.players.push(player);
+  saveState();
+  elements.addPlayerSuggestions.hidden = true;
+  elements.addPlayerModal.close();
+  render();
+}
+
+function openSessionSetupModal() {
+  if (!canAccessFullLedger()) {
+    focusAuth();
+    return;
+  }
+  const draft = state.draftSession;
+  const quickStart =
+    (draft.name || "Modern Casino") === "Modern Casino" &&
+    (draft.location || "Fort lee") === "Fort lee" &&
+    (draft.collaboration || "No") === "No" &&
+    (draft.dealerShareEnabled || "No") === "No";
+  elements.setupSessionNameInput.value = draft.name || "Modern Casino";
+  elements.setupSessionDateInput.value = draft.date || getNewYorkNowLocalInput();
+  elements.setupSessionLocationInput.value = draft.location || "Fort lee";
+  elements.setupQuickStartInput.checked = quickStart;
+  elements.setupCollaborationInput.value = draft.collaboration || "No";
+  elements.setupCollaborationNameInput.value = draft.collaborationName || "";
+  elements.setupCollaborationShareInput.value = draft.collaborationSharePercent || 0;
+  elements.setupDealerShareEnabledInput.value = draft.dealerShareEnabled || "No";
+  elements.setupDealerShareInput.value = draft.dealerSharePercent || 0;
+  elements.setupDealerNamesInput.value = draft.dealerNames || "";
+  updateSessionSetupVisibility();
+  elements.sessionSetupModal.showModal();
+}
+
+function confirmSessionSetup() {
+  const quickStart = elements.setupQuickStartInput.checked;
+  if (quickStart) {
+    elements.setupSessionNameInput.value = elements.setupSessionNameInput.value.trim() || "Modern Casino";
+    elements.setupSessionLocationInput.value = elements.setupSessionLocationInput.value.trim() || "Fort lee";
+    elements.setupCollaborationInput.value = "No";
+    elements.setupDealerShareEnabledInput.value = "No";
+    elements.setupCollaborationNameInput.value = "";
+    elements.setupCollaborationShareInput.value = "0";
+    elements.setupDealerShareInput.value = "0";
+  }
+  state.draftSession.name = elements.setupSessionNameInput.value.trim() || "Modern Casino";
+  state.draftSession.date = elements.setupSessionDateInput.value || getNewYorkNowLocalInput();
+  state.draftSession.location = elements.setupSessionLocationInput.value.trim() || "Fort lee";
+  state.draftSession.collaboration = elements.setupCollaborationInput.value || "No";
+  state.draftSession.collaborationName = elements.setupCollaborationNameInput.value.trim();
+  state.draftSession.collaborationSharePercent =
+    state.draftSession.collaboration === "Yes" ? toNumber(elements.setupCollaborationShareInput.value) : 0;
+  state.draftSession.dealerShareEnabled = elements.setupDealerShareEnabledInput.value || "No";
+  state.draftSession.dealerSharePercent =
+    state.draftSession.dealerShareEnabled === "Yes" ? toNumber(elements.setupDealerShareInput.value) : 0;
+  state.draftSession.dealerNames = elements.setupDealerNamesInput.value.trim();
+  ensureSessionStarted();
+  state.ui.activeView = "accounting";
+  saveState();
+  elements.sessionSetupModal.close();
+  render();
+}
+
+function updateSessionSetupVisibility() {
+  const quickStart = Boolean(elements.setupQuickStartInput?.checked);
+  if (quickStart) {
+    elements.setupCollaborationInput.value = "No";
+    elements.setupDealerShareEnabledInput.value = "No";
+  }
+  const collaborationEnabled = !quickStart && elements.setupCollaborationInput.value === "Yes";
+  const dealerShareEnabled = !quickStart && elements.setupDealerShareEnabledInput.value === "Yes";
+  if (elements.setupCollaborationFields) elements.setupCollaborationFields.hidden = !collaborationEnabled;
+  if (elements.setupDealerShareField) elements.setupDealerShareField.hidden = !dealerShareEnabled;
+  elements.setupCollaborationInput.disabled = quickStart;
+  elements.setupDealerShareEnabledInput.disabled = quickStart;
+  if (!collaborationEnabled) {
+    elements.setupCollaborationNameInput.value = quickStart ? "" : elements.setupCollaborationNameInput.value;
+    elements.setupCollaborationShareInput.value = "0";
+  }
+  if (!dealerShareEnabled) {
+    elements.setupDealerShareInput.value = "0";
+  }
+}
+
+function renderFinancials() {
+  const summary = computeDraftSummary();
+  const finalReady =
+    state.draftSession.stage === "settlement" &&
+    summary.players.length > 0 &&
+    summary.players.every((player) => player.cashOutRecorded);
+
+  elements.sessionCashoutDisplay.value = finalReady ? summary.totalCashOut.toFixed(2) : "0.00";
+  elements.profitSummaryCards.innerHTML = [
+    metricCard("总 Buyin", formatCurrency(summary.totalBuyIn)),
+    metricCard("总 Cash Out", finalReady ? formatCurrency(summary.totalCashOut) : "待牌局结束"),
+    metricCard("总 Cover", formatCurrency(summary.totalCover)),
+    metricCard("所有成本", formatCurrency(summary.totalCosts)),
+    metricCard("净利润", finalReady ? formatCurrency(summary.netProfit) : "待所有 Cash Out", finalReady ? summary.netProfit >= 0 : null),
+    metricCard(
+      "Modern 集团净利润",
+      finalReady ? formatCurrency(summary.modernNetProfit) : "待所有 Cash Out",
+      finalReady ? summary.modernNetProfit >= 0 : null
+    ),
+    metricCard(
+      "Dealer 分红",
+      finalReady ? formatCurrency(summary.dealerShareAmount) : "待所有 Cash Out",
+      finalReady ? summary.dealerShareAmount >= 0 : null
+    ),
+    metricCard(
+      "合作方分红",
+      finalReady ? formatCurrency(summary.collaborationShareAmount) : "待所有 Cash Out",
+      finalReady ? summary.collaborationShareAmount >= 0 : null
+    ),
+  ].join("");
+
+  elements.sessionMetrics.innerHTML = [
+    metricCard("参与玩家", `${getNamedDraftPlayers().length}`),
+    metricCard("总 Buyin 次数", `${summary.totalBuyInCount}`),
+    metricCard("已结账人数", `${summary.settledCount}`),
+    metricCard("未结账人数", `${summary.pendingCount}`),
+    metricCard("结账余额", formatCurrency(summary.remainingSettlement)),
+    metricCard("牌局状态", state.draftSession.stage === "settlement" ? "结算中" : "进行中"),
+  ].join("");
+
+  elements.partnerFinalTable.innerHTML = !finalReady
+    ? `<div class="empty-state">牌局仍在进行或尚未完成全部 Cash Out，暂不生成最终收益。</div>`
+    : summary.partnerResults.length
+    ? summary.partnerResults
+        .map(
+          (partner) => `
+            <article class="leaderboard-row">
+              <div>
+                <h3>${escapeHtml(partner.name || "未命名合伙人")}</h3>
+                <p>Modern 分股 ${formatPercent(partner.sharePercent)} · Modern 利润 ${formatCurrency(partner.profitShare)} · 在桌输赢 ${formatCurrency(partner.playerProfit)}</p>
+                <p>收账 / 垫账 ${formatCurrency(partner.advance)}</p>
+              </div>
+              <div>
+                <p>最终应收 / 应付</p>
+                <strong class="leaderboard-score ${partner.finalAmount >= 0 ? "positive" : "negative"}">${formatCurrency(partner.finalAmount)}</strong>
+              </div>
+            </article>
+          `
+        )
+        .join("")
+    : `<div class="empty-state">请先录入合伙人信息。</div>`;
+}
+
+function computeDraftSummary() {
+  const players = getNamedDraftPlayers();
+  const partners = state.draftSession.partners.filter((partner) => partner.name);
+  const totalBuyIn = sum(players.map(getPlayerBuyInTotal));
+  const totalCashOut = sum(players.map((player) => player.cashOut));
+  const totalBuyInCount = sum(players.map((player) => player.buyIns.length));
+  const partnerCosts = sum(partners.map((partner) => partner.cost));
+  const totalCover = sum(players.map(getPlayerCoverAmount));
+  const totalCosts = state.draftSession.dealerFee + partnerCosts + totalCover;
+  const netProfit = totalBuyIn - totalCashOut - totalCosts;
+  const dealerShareAmount = state.draftSession.dealerShareEnabled === "Yes" ? netProfit * (state.draftSession.dealerSharePercent / 100) : 0;
+  const collaborationShareAmount = netProfit * (state.draftSession.collaborationSharePercent / 100);
+  const modernNetProfit = netProfit - dealerShareAmount - collaborationShareAmount;
+  const settledCount = players.filter((player) => player.settlementStatus === "settled").length;
+  const pendingCount = players.length - settledCount;
+  const remainingSettlement = sum(players.map((player) => player.remainingAmount));
+  const partnerShareTotal = sum(partners.map((partner) => partner.sharePercent));
+  const partnerPayouts = buildPartnerPayoutMap(players, partners.map((partner) => partner.name));
+  const partnerResults = partners.map((partner) => {
+    const linkedPlayers = getPartnerLinkedPlayers(players, partner.name);
+    const playerProfit = sum(linkedPlayers.map((player) => getPlayerProfit(player)));
+    const profitShare = partnerShareTotal > 0 ? modernNetProfit * (partner.sharePercent / partnerShareTotal) : 0;
+    const manualAdvance = toNumber(partner.manualAdvance ?? partner.advance);
+    const advance = manualAdvance + (partnerPayouts.get(partner.name) || 0);
+    return {
+      ...partner,
+      manualAdvance,
+      advance,
+      profitShare,
+      playerProfit,
+      finalAmount: profitShare + playerProfit - advance,
+    };
+  });
+
+  return {
+    players,
+    partners,
+    totalBuyIn,
+    totalCashOut,
+    totalBuyInCount,
+    totalCover,
+    totalCosts,
+    netProfit,
+    modernNetProfit,
+    dealerShareAmount,
+    collaborationShareAmount,
+    settledCount,
+    pendingCount,
+    remainingSettlement,
+    partnerResults,
+  };
+}
+
+function getPlayerPreview(player) {
+  const base = [
+    `总 Buyin：<strong>${formatCurrency(getPlayerBuyInTotal(player))}</strong>`,
+    `Buyin 明细：${player.buyIns.length ? player.buyIns.map(formatCurrency).join(" / ") : "暂无"}`,
+  ];
+
+  if (player.cashOuts?.length) {
+    base.push(`Cash Out 记录：${player.cashOuts.map(formatCurrency).join(" / ")}`);
+  }
+
+  if (state.draftSession.stage === "settlement" || player.exited || player.cashOut > 0) {
+    base.push(`Cash Out 合计：${formatCurrency(getPlayerCashOutTotal(player))}`);
+    base.push(`游戏时间：${formatDuration(getPlayerPlayMs(player))}`);
+    base.push(`盈利：<strong class="${getPlayerProfit(player) >= 0 ? "positive" : "negative"}">${formatCurrency(getPlayerProfit(player))}</strong>`);
+  }
+
+  return base.map((line) => `<div>${line}</div>`).join("");
+}
+
+function settlementLabel(status) {
+  return { pending: "未结", partial: "部分结清", settled: "已结清" }[status] || "未结";
+}
+
+function getNamedDraftPlayers() {
+  return state.draftSession.players.filter((player) => player.name);
+}
+
+function getActiveDraftPlayers() {
+  return getNamedDraftPlayers().filter((player) => !player.exited);
+}
+
+function getPartnerNames() {
+  return state.draftSession.partners.map((partner) => partner.name).filter(Boolean);
+}
+
+function getPlayerBuyInTotal(player) {
+  return sum(player.buyIns);
+}
+
+function getPlayerCashOutTotal(player) {
+  return toNumber(player.cashOut);
+}
+
+function getPlayerProfit(player) {
+  return getPlayerCashOutTotal(player) + player.insuranceProfit - getPlayerBuyInTotal(player);
+}
+
+function getPlayerCoverAmount(player) {
+  return Math.max(toNumber(player.coverAmount), 0);
+}
+
+function getSettlementObligation(player, profit = toNumber(player.profit ?? getPlayerProfit(player))) {
+  if (profit > 0) return Math.max(profit, 0);
+  if (profit < 0) return Math.max(Math.abs(profit) - getPlayerCoverAmount(player), 0);
+  return 0;
+}
+
+function getModernPartnerNamesFromSession(session) {
+  return (session?.partners || [])
+    .map((partner) => String(partner.name || "").trim())
+    .filter(Boolean);
+}
+
+function getPlayerOutstandingAmount(player) {
+  const profit = toNumber(player.profit ?? getPlayerProfit(player));
+  const settledAmount = Math.max(toNumber(player.settledAmount), 0);
+  return Math.max(getSettlementObligation(player, profit) - settledAmount, 0);
+}
+
+function isPlayerSettlementComplete(player) {
+  const profit = toNumber(player.profit ?? getPlayerProfit(player));
+  const outstanding = getPlayerOutstandingAmount(player);
+  if (outstanding > 0.009) return false;
+  if (profit > 0 && Math.max(toNumber(player.settledAmount), 0) > 0 && !String(player.partnerName || "").trim()) return false;
+  return true;
+}
+
+function isSessionSettled(session) {
+  if (!session?.players?.length) return false;
+  return session.players.every(isPlayerSettlementComplete);
+}
+
+function getPartnerLinkedPlayers(players, partnerName) {
+  const normalizedPartnerName = String(partnerName || "").trim();
+  if (!normalizedPartnerName) return [];
+  return (players || []).filter((player) => {
+    const playerName = String(player.name || "").trim();
+    const settlementPartnerName = String(player.partnerName || "").trim();
+    return playerName === normalizedPartnerName || settlementPartnerName === normalizedPartnerName;
+  });
+}
+
+function buildPartnerPayoutMap(players, partnerNames) {
+  const validPartnerNames = new Set((partnerNames || []).filter(Boolean));
+  const payoutMap = new Map();
+  players.forEach((player) => {
+    const partnerName = String(player.partnerName || "").trim();
+    const profit = toNumber(player.profit ?? getPlayerProfit(player));
+    if (profit <= 0 || !partnerName || !validPartnerNames.has(partnerName)) return;
+    const payout = Math.min(Math.max(toNumber(player.settledAmount), 0), profit);
+    if (payout <= 0) return;
+    payoutMap.set(partnerName, (payoutMap.get(partnerName) || 0) - payout);
+  });
+  return payoutMap;
+}
+
+function recomputeSavedSession(session) {
+  if (!session || typeof session !== "object") return session;
+  const players = Array.isArray(session.players) ? session.players : [];
+  const partners = Array.isArray(session.partners) ? session.partners : [];
+  const totalBuyIn = sum(players.map((player) => toNumber(player.totalBuyIn)));
+  const totalCashOut = sum(players.map((player) => toNumber(player.cashOut)));
+  const partnerCosts = sum(partners.map((partner) => toNumber(partner.cost)));
+  const totalCover = sum(players.map((player) => getPlayerCoverAmount(player)));
+  const totalCosts = toNumber(session.dealerFee) + partnerCosts + totalCover;
+  const netProfit = totalBuyIn - totalCashOut - totalCosts;
+  const dealerShareAmount = session.dealerShareEnabled === "Yes" ? netProfit * (toNumber(session.dealerSharePercent) / 100) : 0;
+  const collaborationShareAmount = netProfit * (toNumber(session.collaborationSharePercent) / 100);
+  const modernNetProfit = netProfit - dealerShareAmount - collaborationShareAmount;
+  const partnerShareTotal = sum(partners.map((partner) => toNumber(partner.sharePercent)));
+  const partnerPayouts = buildPartnerPayoutMap(players, partners.map((partner) => partner.name));
+  const recomputedPartners = partners.map((partner) => {
+    const linkedPlayers = getPartnerLinkedPlayers(players, partner.name);
+    const playerProfit = sum(linkedPlayers.map((player) => toNumber(player.profit)));
+    const profitShare = partnerShareTotal > 0 ? modernNetProfit * (toNumber(partner.sharePercent) / partnerShareTotal) : 0;
+    const manualAdvance = toNumber(partner.manualAdvance ?? partner.advance);
+    const advance = manualAdvance + (partnerPayouts.get(partner.name) || 0);
+    return {
+      ...partner,
+      manualAdvance,
+      advance,
+      profitShare,
+      playerProfit,
+      finalAmount: profitShare + playerProfit - advance,
+    };
+  });
+
+  return {
+    ...session,
+    totalBuyIn,
+    totalCashOut,
+    totalCover,
+    totalCosts,
+    netProfit,
+    modernNetProfit,
+    dealerShareAmount,
+    collaborationShareAmount,
+    partners: recomputedPartners,
+  };
+}
+
+function getSavedSessionMetrics(session) {
+  const hours = Math.max(toNumber(session.durationHours), 0);
+  const grossRake = toNumber(session.totalBuyIn) - toNumber(session.totalCashOut);
+  return {
+    grossRake,
+    hourlyRake: hours ? grossRake / hours : 0,
+    hourlyNetProfit: hours ? toNumber(session.netProfit) / hours : 0,
+  };
+}
+
+function getSavedSessionPartnerDetail(session, partner) {
+  const tableProfit = sum(getPartnerLinkedPlayers(session.players || [], partner.name).map((player) => toNumber(player.profit)));
+  const balanceWithSession = toNumber(partner.profitShare) - toNumber(partner.cost) - toNumber(partner.advance);
+  return {
+    profitShare: toNumber(partner.profitShare),
+    cost: toNumber(partner.cost),
+    advance: toNumber(partner.advance),
+    tableProfit,
+    actualTakeHome: balanceWithSession + tableProfit,
+    balanceWithSession,
+  };
+}
+
+function saveSession() {
+  if (!state.draftSession.name || !getNamedDraftPlayers().length) {
+    alert("请先填写牌局名称并录入玩家。");
+    return;
+  }
+
+  if (state.draftSession.stage !== "settlement") {
+    alert("请先结束牌局并进入结算，再保存最终账单。");
+    return;
+  }
+
+  const unsettledPlayers = getNamedDraftPlayers().filter((player) => !player.cashOutRecorded);
+  if (unsettledPlayers.length) {
+    alert("请先完成所有玩家的 Cash Out 记录，再保存最终账单。");
+    return;
+  }
+
+  const summary = computeDraftSummary();
+  const session = {
+    id: crypto.randomUUID(),
+    name: state.draftSession.name,
+    date: state.draftSession.date,
+    location: state.draftSession.location,
+    dealerNames: state.draftSession.dealerNames,
+    dealerSharePercent: state.draftSession.dealerSharePercent,
+    dealerShareEnabled: state.draftSession.dealerShareEnabled,
+    collaborationName: state.draftSession.collaborationName,
+    collaborationSharePercent: state.draftSession.collaborationSharePercent,
+    durationHours: state.draftSession.durationHours,
+    notes: state.draftSession.notes,
+    stage: state.draftSession.stage,
+    dealerFee: state.draftSession.dealerFee,
+    totalBuyIn: summary.totalBuyIn,
+    totalCashOut: summary.totalCashOut,
+    totalCover: summary.totalCover,
+    totalCosts: summary.totalCosts,
+    netProfit: summary.netProfit,
+    players: summary.players.map((player) => ({
+      playerId: upsertPlayer(player.name),
+      name: player.name,
+      buyInEntries: [...player.buyIns],
+      totalBuyIn: getPlayerBuyInTotal(player),
+      cashOut: getPlayerCashOutTotal(player),
+      cashOutHistory: [...(player.cashOuts || [])],
+      cashOutRecorded: player.cashOutRecorded,
+      insuranceProfit: player.insuranceProfit,
+      profit: getPlayerProfit(player),
+      playMs: getPlayerPlayMs(player),
+      settlementStatus: player.settlementStatus,
+      settledAmount: player.settledAmount,
+      coverAmount: player.coverAmount,
+      remainingAmount: player.remainingAmount,
+      partnerName: player.partnerName,
+    })),
+    partners: summary.partnerResults.map((partner) => ({
+      name: partner.name,
+      sharePercent: partner.sharePercent,
+      cost: partner.cost,
+      manualAdvance: partner.manualAdvance,
+      advance: partner.advance,
+      profitShare: partner.profitShare,
+      playerProfit: partner.playerProfit,
+      finalAmount: partner.finalAmount,
+    })),
+    createdAt: new Date().toISOString(),
+  };
+
+  state.sessions.unshift(session);
+  state.draftSession = createDefaultDraftSession();
+  state.ui.activeView = "history";
+  saveState();
+  render();
+}
+
+function finalizeLiveSession() {
+  const nowIso = new Date().toISOString();
+  state.draftSession.endedAt = nowIso;
+  state.draftSession.durationHours = Number((getSessionDurationMs() / 3600000).toFixed(2));
+  state.draftSession.players.forEach((player) => {
+    if (!player.startedAt || player.exited) return;
+    player.totalPlayMs = getPlayerPlayMs(player, nowIso);
+    player.startedAt = "";
+    player.endedAt = nowIso;
+    player.pausedForSettlement = true;
+  });
+}
+
+function resumeLiveSession() {
+  state.draftSession.endedAt = "";
+  state.draftSession.players.forEach((player) => {
+    if (player.exited || !player.pausedForSettlement) return;
+    player.startedAt = new Date().toISOString();
+    player.endedAt = "";
+    player.pausedForSettlement = false;
+  });
+}
+
+function ensureSessionStarted() {
+  if (!state.draftSession.startedAt) {
+    state.draftSession.startedAt = new Date().toISOString();
+  }
+}
+
+function ensurePlayerStarted(player) {
+  if (!player.startedAt) {
+    player.startedAt = new Date().toISOString();
+    player.endedAt = "";
+    player.pausedForSettlement = false;
+  }
+}
+
+function recordPlayerCashout(player, amount) {
+  player.cashOuts = Array.isArray(player.cashOuts) ? player.cashOuts : [];
+  player.cashOuts.push(amount);
+  player.cashOut = sum(player.cashOuts);
+  player.cashOutRecorded = true;
+  exitPlayer(player);
+}
+
+function removeDraftCashoutEntry(player, cashoutIndex) {
+  if (!Array.isArray(player.cashOuts)) return;
+  player.cashOuts.splice(cashoutIndex, 1);
+  player.cashOut = sum(player.cashOuts);
+  player.cashOutRecorded = player.cashOuts.length > 0;
+  if (!player.cashOutRecorded) {
+    player.exited = false;
+    player.endedAt = "";
+    player.pausedForSettlement = false;
+    if (!player.startedAt) player.startedAt = new Date().toISOString();
+  }
+}
+
+function exitPlayer(player) {
+  const nowIso = new Date().toISOString();
+  if (!player.startedAt) player.startedAt = nowIso;
+  player.totalPlayMs = getPlayerPlayMs(player, nowIso);
+  player.startedAt = "";
+  player.endedAt = nowIso;
+  player.exited = true;
+  player.pausedForSettlement = false;
+}
+
+function resumePlayer(player) {
+  player.exited = false;
+  player.startedAt = new Date().toISOString();
+  player.endedAt = "";
+  player.pausedForSettlement = false;
+  player.cashOutRecorded = false;
+  player.cashOut = 0;
+  player.cashOuts = [];
+  player.settlementStatus = "pending";
+  player.settledAmount = 0;
+  player.remainingAmount = 0;
+  player.partnerName = "";
+}
+
+function getSessionDurationMs() {
+  const { startedAt, endedAt } = state.draftSession;
+  if (!startedAt) return 0;
+  const end = endedAt ? new Date(endedAt).getTime() : Date.now();
+  return Math.max(end - new Date(startedAt).getTime(), 0);
+}
+
+function getPlayerPlayMs(player, fallbackEndIso = "") {
+  const total = toNumber(player.totalPlayMs);
+  if (!player.startedAt) return total;
+  const end = player.endedAt || fallbackEndIso || (state.draftSession.endedAt ? state.draftSession.endedAt : new Date().toISOString());
+  return total + Math.max(new Date(end).getTime() - new Date(player.startedAt).getTime(), 0);
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Math.max(Math.floor(ms / 1000), 0);
+  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+function getNewYorkNowLocalInput() {
+  const formatter = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return formatter.format(new Date()).replace(" ", "T");
+}
+
+function formatSetupDate(value) {
+  return String(value || "").replace("T", " ");
+}
+
+function shouldUseMobileSwipeUi() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
+function formatShortDate(value) {
+  return String(value || "").replaceAll("-", "/").slice(5);
+}
+
+function formatPercent(value) {
+  return `${toNumber(value).toFixed(2)}%`;
+}
+
+function calculateModernSharePercent(draft = state.draftSession) {
+  const dealerShare = draft.dealerShareEnabled === "Yes" ? toNumber(draft.dealerSharePercent) : 0;
+  const collaborationShare = toNumber(draft.collaborationSharePercent);
+  return Math.max(0, 100 - dealerShare - collaborationShare);
+}
+
+function isDefaultModernPartner(partner) {
+  return [
+    ["Blue", 39.6],
+    ["项往", 29.7],
+    ["JW", 29.7],
+    ["Kanye", 1],
+  ].some(([name, share]) => partner.name === name && Math.abs(toNumber(partner.sharePercent) - share) < 0.001);
+}
+
+function renderHistory() {
+  purgeExpiredDeletedSessions();
+  const cards = [];
+  const filter = elements.historySettlementFilter?.value || "all";
+  const unsettledSessions = [];
+  const settledSessions = [];
+
+  if (hasDraftActivity()) {
+    const draft = buildDraftSessionSnapshot();
+    cards.push(`
+      <article class="session-item session-item-compact session-item-live">
+        <div class="session-item-top session-item-top-compact dense-history-row">
+          <button class="dense-history-main" type="button" data-history-action="open-draft">
+            <strong>${escapeHtml(draft.name)}</strong>
+            <span class="session-item-meta">实时账单 · ${escapeHtml(formatSetupDate(draft.date))} · ${escapeHtml(draft.location)}</span>
+          </button>
+          <div class="toolbar wrap compact-row-actions dense-history-actions">
+            <span class="settlement-badge settlement-badge-unsettled">${escapeHtml(draft.stageLabel)}</span>
+            <strong class="${draft.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(draft.netProfit)}</strong>
+            <button class="ghost-button compact-action-button dense-action-button" type="button" data-history-action="open-draft">${draft.openLabel}</button>
+          </div>
+        </div>
+      </article>
+    `);
+  }
+
+  if (!state.sessions.length && !cards.length) {
+    elements.sessionList.innerHTML = `<div class="empty-state">暂无往期账单。</div>`;
+    renderTrashBin();
+    return;
+  }
+
+  state.sessions.forEach((session) => {
+    const settled = isSessionSettled(session);
+    if (filter === "settled" && !settled) return;
+    if (filter === "unsettled" && settled) return;
+    const content = `
+      <div class="session-item-top session-item-top-compact dense-history-row history-session-row">
+        <button class="dense-history-main history-session-chip history-session-primary" type="button" data-history-action="open-session-detail" data-session-id="${session.id}">
+          <span class="history-chip-title">${escapeHtml(formatSetupDate(session.date))}</span>
+          <span class="history-chip-meta">${escapeHtml(session.location || "未填写地点")}</span>
+        </button>
+        <strong class="history-session-profit history-session-profit-core ${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong>
+        <div class="history-session-side">
+          <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
+          <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="open-session-settlement" data-session-id="${session.id}">结账</button>
+          ${shouldUseMobileSwipeUi() ? "" : `<button class="ghost-button danger-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>`}
+        </div>
+      </div>
+    `;
+    const card = shouldUseMobileSwipeUi()
+      ? `
+        <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
+          <div class="swipe-delete-action">
+            <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="delete-session" data-session-id="${session.id}">删除</button>
+          </div>
+          <div class="swipe-delete-track">${content}</div>
+        </article>
+      `
+      : `
+        <article class="session-item session-item-compact">${content}</article>
+      `;
+    if (settled) {
+      settledSessions.push(card);
+    } else {
+      unsettledSessions.push(card);
+    }
+  });
+
+  if (filter === "all") {
+    cards.push(...unsettledSessions, ...settledSessions);
+  } else {
+    cards.push(...(filter === "settled" ? settledSessions : unsettledSessions));
+  }
+
+  if (!cards.length) {
+    elements.sessionList.innerHTML = `<div class="empty-state">当前筛选下暂无账单。</div>`;
+  } else {
+    elements.sessionList.innerHTML = cards.join("");
+  }
+  renderTrashBin();
+  if (shouldUseMobileSwipeUi()) bindSwipeDeleteInteractions(elements.sessionList);
+}
+
+function hasDraftActivity() {
+  const draft = state.draftSession;
+  return Boolean(
+    draft.players.length ||
+      draft.startedAt ||
+      draft.endedAt ||
+      draft.stage === "settlement" ||
+      draft.dealerFee > 0 ||
+      String(draft.dealerNames || "").trim() ||
+      String(draft.collaborationName || "").trim() ||
+      String(draft.notes || "").trim() ||
+      draft.collaboration === "Yes" ||
+      draft.dealerShareEnabled === "Yes" ||
+      toNumber(draft.collaborationSharePercent) > 0 ||
+      toNumber(draft.dealerSharePercent) > 0 ||
+      draft.partners.some(
+        (partner) =>
+          partner.cost > 0 ||
+          toNumber(partner.manualAdvance ?? partner.advance) !== 0 ||
+          !isDefaultModernPartner(partner)
+      )
+  );
+}
+
+function buildDraftSessionSnapshot() {
+  const summary = computeDraftSummary();
+  return {
+    name: state.draftSession.name || "未命名牌局",
+    date: formatSetupDate(state.draftSession.date),
+    location: state.draftSession.location || "未填写地点",
+    stageLabel: state.draftSession.stage === "settlement" ? "结算中" : "进行中",
+    openLabel: state.draftSession.stage === "settlement" ? "继续结算" : "继续记账",
+    players: summary.players.map((player) => ({
+      name: player.name,
+      totalBuyIn: getPlayerBuyInTotal(player),
+    })),
+    totalBuyIn: summary.totalBuyIn,
+    totalCashOut: summary.totalCashOut,
+    totalCosts: summary.totalCosts,
+  };
+}
+
+function handleHistoryActions(event) {
+  if (!canAccessFullLedger()) {
+    focusAuth();
+    return;
+  }
+  const button = event.target.closest("[data-history-action]");
+  if (!button) return;
+  switch (button.dataset.historyAction) {
+    case "open-draft":
+      state.ui.activeView = "accounting";
+      saveState();
+      render();
+      return;
+    case "open-session":
+    case "open-session-settlement":
+      openHistorySessionModal(button.dataset.sessionId, "settlement");
+      return;
+    case "open-session-detail":
+      openHistorySessionModal(button.dataset.sessionId, "detail");
+      return;
+    case "delete-session":
+      deleteSession(button.dataset.sessionId);
+      return;
+    case "restore-session":
+      restoreSessionFromTrash(button.dataset.sessionId);
+      return;
+    case "purge-session":
+      purgeSessionFromTrash(button.dataset.sessionId);
+      return;
+    default:
+      return;
+  }
+}
+
+function handleHistorySessionActions(event) {
+  const button = event.target.closest("[data-history-action]");
+  if (!button) return;
+  if (button.dataset.historyAction === "toggle-history-settlement-player") {
+    const playerKey = button.dataset.playerKey || "";
+    state.ui.expandedHistorySettlementPlayerKey =
+      state.ui.expandedHistorySettlementPlayerKey === playerKey ? "" : playerKey;
+    activeHistorySettlementPlayerKey = state.ui.expandedHistorySettlementPlayerKey;
+    saveState();
+    const session = state.sessions.find((item) => item.id === activeHistorySessionId);
+    if (session) openHistorySessionModal(session.id, "settlement");
+  }
+  if (button.dataset.historyAction === "toggle-history-detail-player") {
+    const playerKey = button.dataset.playerKey || "";
+    activeHistoryDetailPlayerKey = activeHistoryDetailPlayerKey === playerKey ? "" : playerKey;
+    const session = state.sessions.find((item) => item.id === activeHistorySessionId);
+    if (session) openHistorySessionModal(session.id, "detail");
+  }
+  if (button.dataset.historyAction === "toggle-history-partner") {
+    const partnerKey = button.dataset.partnerKey || "";
+    activeHistoryPartnerKey = activeHistoryPartnerKey === partnerKey ? "" : partnerKey;
+    const session = state.sessions.find((item) => item.id === activeHistorySessionId);
+    if (session) openHistorySessionModal(session.id, "detail");
+  }
+  if (button.dataset.historyAction === "delete-history-player") {
+    deleteHistorySessionPlayer(button.dataset.sessionId, Number(button.dataset.playerIndex));
+  }
+  if (button.dataset.historyAction === "delete-history-partner") {
+    deleteHistorySessionPartner(button.dataset.sessionId, Number(button.dataset.partnerIndex));
+  }
+}
+
+function bindSwipeDeleteInteractions(container) {
+  if (!container) return;
+  container.querySelectorAll("[data-swipe-delete]").forEach((card) => {
+    if (card.dataset.swipeBound === "true") return;
+    card.dataset.swipeBound = "true";
+    card.dataset.swipeOpen = "false";
+    const track = card.querySelector(".swipe-delete-track");
+    const action = card.querySelector(".swipe-delete-action");
+    if (!track) return;
+    let startX = 0;
+    let startY = 0;
+    let currentX = 0;
+    let dragging = false;
+    let moved = false;
+    let swiping = false;
+    let activePointerId = null;
+    let startedOpen = false;
+
+    const getSwipeWidth = () => Math.max(action?.offsetWidth || 0, 88);
+
+    const setOffset = (value, immediate = false) => {
+      const swipeWidth = getSwipeWidth();
+      const bounded = Math.max(-swipeWidth, Math.min(0, value));
+      card.classList.toggle("is-swiping", immediate);
+      card.style.setProperty("--swipe-offset", `${bounded}px`);
+      if (!immediate) {
+        card.dataset.swipeOpen = bounded <= -swipeWidth * 0.72 ? "true" : "false";
+      }
+    };
+
+    const closeOthers = () => {
+      container.querySelectorAll("[data-swipe-delete]").forEach((item) => {
+        if (item === card) return;
+        item.style.setProperty("--swipe-offset", "0px");
+        item.dataset.swipeOpen = "false";
+        item.classList.remove("is-swiping");
+      });
+    };
+
+    const openCard = () => {
+      card.classList.remove("is-swiping");
+      card.style.setProperty("--swipe-offset", `${-getSwipeWidth()}px`);
+      card.dataset.swipeOpen = "true";
+    };
+
+    const closeCard = () => {
+      card.classList.remove("is-swiping");
+      card.style.setProperty("--swipe-offset", "0px");
+      card.dataset.swipeOpen = "false";
+    };
+
+    track.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".swipe-delete-button")) return;
+      if (event.target.closest("input, select, textarea")) return;
+      startX = event.clientX;
+      startY = event.clientY;
+      currentX = Number(card.style.getPropertyValue("--swipe-offset").replace("px", "")) || 0;
+      startedOpen = card.dataset.swipeOpen === "true";
+      dragging = true;
+      moved = false;
+      swiping = false;
+      activePointerId = event.pointerId;
+      closeOthers();
+      track.setPointerCapture?.(event.pointerId);
+    });
+
+    track.addEventListener("pointermove", (event) => {
+      if (!dragging || (activePointerId !== null && event.pointerId !== activePointerId)) return;
+      const deltaX = event.clientX - startX;
+      const deltaY = event.clientY - startY;
+      if (!swiping) {
+        if (Math.abs(deltaY) > Math.abs(deltaX) + 8) {
+          dragging = false;
+          card.classList.remove("is-swiping");
+          return;
+        }
+        if (Math.abs(deltaX) < 6) return;
+        swiping = true;
+      }
+      moved = true;
+      event.preventDefault();
+      setOffset(currentX + deltaX, true);
+    });
+
+    const finishSwipe = (event) => {
+      if (!dragging || (activePointerId !== null && event.pointerId !== activePointerId)) return;
+      dragging = false;
+      activePointerId = null;
+      card.classList.remove("is-swiping");
+      const deltaX = event.clientX - startX;
+      const finalOffset = Number(card.style.getPropertyValue("--swipe-offset").replace("px", "")) || 0;
+      const swipeWidth = getSwipeWidth();
+      if (!moved || !swiping) {
+        if (card.dataset.swipeOpen === "true") {
+          openCard();
+        } else {
+          closeCard();
+        }
+        return;
+      }
+      const openThreshold = Math.min(22, swipeWidth * 0.25);
+      const closeThreshold = Math.min(18, swipeWidth * 0.2);
+      if (startedOpen) {
+        if (deltaX >= closeThreshold || finalOffset >= -swipeWidth * 0.35) {
+          closeCard();
+        } else {
+          openCard();
+        }
+      } else if (deltaX <= -openThreshold || finalOffset <= -swipeWidth * 0.2) {
+        openCard();
+      } else {
+        closeCard();
+      }
+    };
+
+    track.addEventListener("pointerup", finishSwipe);
+    track.addEventListener("pointercancel", finishSwipe);
+    track.addEventListener(
+      "touchstart",
+      (event) => {
+        const touch = event.touches?.[0];
+        if (!touch) return;
+        if (event.target.closest(".swipe-delete-button")) return;
+        if (event.target.closest("input, select, textarea")) return;
+        startX = touch.clientX;
+        startY = touch.clientY;
+        currentX = Number(card.style.getPropertyValue("--swipe-offset").replace("px", "")) || 0;
+        startedOpen = card.dataset.swipeOpen === "true";
+        dragging = true;
+        moved = false;
+        swiping = false;
+        activePointerId = "touch";
+        closeOthers();
+      },
+      { passive: true }
+    );
+    track.addEventListener(
+      "touchmove",
+      (event) => {
+        if (!dragging || activePointerId !== "touch") return;
+        const touch = event.touches?.[0];
+        if (!touch) return;
+        const deltaX = touch.clientX - startX;
+        const deltaY = touch.clientY - startY;
+        if (!swiping) {
+          if (Math.abs(deltaY) > Math.abs(deltaX) + 8) {
+            dragging = false;
+            activePointerId = null;
+            card.classList.remove("is-swiping");
+            return;
+          }
+          if (Math.abs(deltaX) < 6) return;
+          swiping = true;
+        }
+        moved = true;
+        event.preventDefault();
+        setOffset(currentX + deltaX, true);
+      },
+      { passive: false }
+    );
+    track.addEventListener(
+      "touchend",
+      (event) => {
+        if (!dragging || activePointerId !== "touch") return;
+        const touch = event.changedTouches?.[0];
+        if (!touch) return;
+        finishSwipe({ clientX: touch.clientX, clientY: touch.clientY, pointerId: "touch" });
+      },
+      { passive: true }
+    );
+    track.addEventListener("click", (event) => {
+      if (card.dataset.swipeOpen === "true" && !event.target.closest(".swipe-delete-button")) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCard();
+      }
+    });
+  });
+}
+
+function deleteSession(sessionId) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  if (!window.confirm(`确认把账单“${session.name}”移入垃圾箱吗？24 小时内可恢复。`)) return;
+  moveSessionToTrash(sessionId);
+}
+
+function moveSessionToTrash(sessionId, options = {}) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) return false;
+  const deletedAt = new Date().toISOString();
+  const restoreBefore = new Date(Date.now() + TRASH_RETENTION_MS).toISOString();
+  state.deletedSessions.unshift({
+    id: session.id,
+    deletedAt,
+    restoreBefore,
+    session: cloneState(session),
+  });
+  state.sessions = state.sessions.filter((item) => item.id !== sessionId);
+  if (activeHistorySessionId === sessionId && elements.historySessionModal.open) {
+    elements.historySessionModal.close();
+    activeHistorySessionId = "";
+    activeHistorySettlementPlayerKey = "";
+  }
+  if (!options.skipPersist) {
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function restoreSessionFromTrash(sessionId, options = {}) {
+  const entryIndex = state.deletedSessions.findIndex((item) => item.id === sessionId);
+  if (entryIndex < 0) return false;
+  const [entry] = state.deletedSessions.splice(entryIndex, 1);
+  state.sessions.unshift(normalizeSession(entry.session));
+  if (!options.skipPersist) {
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function purgeSessionFromTrash(sessionId, options = {}) {
+  const entry = state.deletedSessions.find((item) => item.id === sessionId);
+  if (!entry) return false;
+  if (!options.skipConfirm && !window.confirm(`确认彻底删除账单“${entry.session.name}”吗？此操作不可恢复。`)) return false;
+  state.deletedSessions = state.deletedSessions.filter((item) => item.id !== sessionId);
+  if (!options.skipPersist) {
+    saveState();
+    render();
+  }
+  return true;
+}
+
+function purgeExpiredDeletedSessions() {
+  const before = state.deletedSessions?.length || 0;
+  state.deletedSessions = (state.deletedSessions || []).filter((entry) => {
+    const deadline = new Date(entry.restoreBefore).getTime();
+    return Number.isFinite(deadline) && deadline > Date.now();
+  });
+  return before !== state.deletedSessions.length;
+}
+
+function renderTrashBin() {
+  if (!elements.trashList) return;
+  if (!state.deletedSessions.length) {
+    elements.trashList.innerHTML = `<div class="empty-state">暂无可恢复账单。</div>`;
+    return;
+  }
+  elements.trashList.innerHTML = state.deletedSessions
+    .map((entry) => {
+      const expiresInMs = Math.max(new Date(entry.restoreBefore).getTime() - Date.now(), 0);
+      const content = `
+        <div class="session-item-top session-item-top-compact dense-history-row history-session-row history-trash-row">
+          <div class="dense-history-main history-session-chip">
+            <span class="history-chip-title">${escapeHtml(entry.session.name)}</span>
+            <span class="history-chip-meta">${escapeHtml(formatSetupDate(entry.session.date))} · ${escapeHtml(entry.session.location || "未填写地点")}</span>
+          </div>
+          <div class="history-session-side history-trash-side">
+            <span class="session-item-meta">剩余 ${formatDuration(expiresInMs)}</span>
+            <button class="ghost-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="restore-session" data-session-id="${entry.id}">恢复</button>
+            ${shouldUseMobileSwipeUi() ? "" : `<button class="ghost-button danger-button compact-action-button dense-action-button history-settlement-button" type="button" data-history-action="purge-session" data-session-id="${entry.id}">彻底删</button>`}
+          </div>
+        </div>
+      `;
+      return shouldUseMobileSwipeUi()
+        ? `
+          <article class="session-item session-item-compact swipe-delete-shell" data-swipe-delete>
+            <div class="swipe-delete-action">
+              <button class="ghost-button danger-button compact-action-button dense-action-button swipe-delete-button" type="button" data-history-action="purge-session" data-session-id="${entry.id}">彻底删</button>
+            </div>
+            <div class="swipe-delete-track">${content}</div>
+          </article>
+        `
+        : `
+          <article class="session-item session-item-compact">${content}</article>
+        `;
+    })
+    .join("");
+  if (shouldUseMobileSwipeUi()) bindSwipeDeleteInteractions(elements.trashList);
+}
+
+function renderStats() {
+  const activeTab = state.ui.statsTab || "overview";
+  document.querySelectorAll("[data-stats-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.statsTab === activeTab);
+    button.setAttribute("aria-pressed", button.dataset.statsTab === activeTab ? "true" : "false");
+  });
+  if (elements.statsOverviewPage) {
+    elements.statsOverviewPage.hidden = activeTab !== "overview";
+    elements.statsOverviewPage.style.display = activeTab === "overview" ? "" : "none";
+  }
+  if (elements.statsPlayersPage) {
+    elements.statsPlayersPage.hidden = activeTab !== "players";
+    elements.statsPlayersPage.style.display = activeTab === "players" ? "" : "none";
+  }
+  if (elements.statsLeaderboardPage) {
+    elements.statsLeaderboardPage.hidden = activeTab !== "leaderboard";
+    elements.statsLeaderboardPage.style.display = activeTab === "leaderboard" ? "" : "none";
+  }
+  renderOverview();
+  renderDebtSummary();
+  renderPlayerOptions();
+  renderPlayerInsight();
+  renderLeaderboard();
+}
+
+function handleStatsTabClick(event) {
+  const button = event.target.closest("[data-stats-tab]");
+  if (!button) return;
+  event.preventDefault();
+  const nextTab = button.dataset.statsTab || "overview";
+  if (state.ui.statsTab === nextTab) return;
+  state.ui.statsTab = nextTab;
+  saveState();
+  renderStats();
+}
+
+function renderOverview() {
+  const totalBuyIn = sum(state.sessions.map((session) => session.totalBuyIn));
+  const totalCashOut = sum(state.sessions.map((session) => session.totalCashOut));
+  const totalCosts = sum(state.sessions.map((session) => session.totalCosts));
+  const totalNetProfit = sum(state.sessions.map((session) => session.netProfit));
+  elements.overviewGrid.innerHTML = [
+    metricCard("累计牌局", `${state.sessions.length}`),
+    metricCard("累计玩家", `${state.players.length}`),
+    metricCard("总 Buyin", formatCurrency(totalBuyIn)),
+    metricCard("总 Cash Out", formatCurrency(totalCashOut)),
+    metricCard("总成本", formatCurrency(totalCosts)),
+    metricCard("总净盈利", formatCurrency(totalNetProfit), totalNetProfit >= 0),
+  ].join("");
+}
+
+function renderDebtSummary() {
+  const debtSessions = getDebtSessions();
+  const debtMap = getOutstandingDebtMap();
+
+  if (!debtMap.size && !debtSessions.length) {
+    elements.debtSummary.className = "player-insight empty-state";
+    elements.debtSummary.innerHTML = "暂无欠款记录。";
+    return;
+  }
+
+  const debts = [...debtMap.entries()].sort((a, b) => b[1] - a[1]);
+  const totalDebt = debts.reduce((sumValue, [, amount]) => sumValue + amount, 0);
+  const dateFilter = getDebtDateFilterValue();
+  const { start: dateStart, end: dateEnd } = getDebtDateRangeValue(debtSessions, dateFilter);
+  const availableSessions = getDebtSessionsByDateRange(dateStart, dateEnd);
+  const sessionFilter = getDebtSessionFilterValue(availableSessions);
+  const detailGroups = getDebtFilterGroups({ dateStart, dateEnd, sessionFilter });
+
+  elements.debtSummary.className = "player-insight";
+  elements.debtSummary.innerHTML = `
+    <div class="insight-grid debt-overview-grid">
+      ${metricCard("欠款人数", `${debts.length}`)}
+      ${metricCard("累计欠款", formatCurrencyAbs(totalDebt), false)}
+    </div>
+    <section class="debt-filter-card">
+      <div class="section-head compact">
+        <div>
+          <p class="section-kicker">Debt Filter</p>
+          <h4>按日期 / 账单查看</h4>
+        </div>
+      </div>
+      <div class="grid two debt-filter-grid">
+        <label class="debt-filter-label">
+          <span>日期范围</span>
+          <div class="debt-range-select-wrap">
+            <select data-debt-date-filter>
+              ${renderDebtDateFilterOptions(debtSessions, dateFilter)}
+            </select>
+          </div>
+        </label>
+        <label class="debt-filter-label">
+          <span>牌局筛选</span>
+          <select data-debt-session-filter>
+            ${renderDebtSessionFilterOptions(availableSessions, sessionFilter)}
+          </select>
+        </label>
+      </div>
+      <div class="partner-final-table debt-top-list">
+        ${debts
+          .map(
+            ([name, amount]) => `
+              <article class="leaderboard-row debt-top-row debt-rank-pill">
+                <strong>${escapeHtml(name)}</strong>
+                <span class="leaderboard-score negative">${formatCurrencyAbs(amount)}</span>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+      ${renderDebtFilterGroupsMarkup(detailGroups, { dateStart, dateEnd, sessionFilter })}
+    </section>
+  `;
+}
+
+function handleDebtSummaryInteractions(event) {
+  const dateFilter = event.target.closest("[data-debt-date-filter]");
+  if (dateFilter) {
+    const nextValue = String(dateFilter.value || "all");
+    state.ui.debtDateFilter = nextValue;
+    const nextRange = getDebtDateRangeValue(getDebtSessions(), nextValue);
+    state.ui.debtDateStart = nextRange.start;
+    state.ui.debtDateEnd = nextRange.end;
+    state.ui.debtSessionFilter = "all";
+    saveState();
+    renderDebtSummary();
+    return;
+  }
+
+  const sessionFilter = event.target.closest("[data-debt-session-filter]");
+  if (sessionFilter) {
+    state.ui.debtSessionFilter = String(sessionFilter.value || "all");
+    saveState();
+    renderDebtSummary();
+    return;
+  }
+
+  const toggle = event.target.closest("[data-debt-clear-toggle]");
+  if (!toggle) return;
+  toggleDebtTrackerSettlement(toggle.dataset.sessionId, Number(toggle.dataset.playerIndex), Boolean(toggle.checked));
+}
+
+function getDebtDateFilterValue() {
+  const raw = String(state.ui?.debtDateFilter || "all");
+  return raw === "all" || raw.startsWith("range:") ? raw : "all";
+}
+
+function getDebtDateRangeValue(sessions, selectedValue = getDebtDateFilterValue()) {
+  const min = getDebtMinDate(sessions);
+  const max = getDebtMaxDate(sessions);
+  if (selectedValue === "all") {
+    return {
+      start: "",
+      end: "",
+    };
+  }
+  const [, rangeValue] = String(selectedValue).split(":");
+  let [start, end] = String(rangeValue || "").split("|");
+  if (start && min && start < min) start = min;
+  if (end && max && end > max) end = max;
+  if (start && end && end < start) {
+    const nextStart = end;
+    end = start;
+    start = nextStart;
+  }
+  return { start, end };
+}
+
+function getDebtDateRanges(sessions) {
+  const dates = [...new Set(sessions.map(getSessionDateKey).filter(Boolean))].sort();
+  if (!dates.length) return [];
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  const ranges = [
+    {
+      value: `range:${first}|${last}`,
+      label: `${formatShortDate(first)} - ${formatShortDate(last)}`,
+    },
+  ];
+  dates.forEach((date) => {
+    ranges.push({
+      value: `range:${date}|${date}`,
+      label: `${formatShortDate(date)} 单日`,
+    });
+  });
+  if (dates.length > 1) {
+    dates.slice(0, -1).forEach((date) => {
+      ranges.push({
+        value: `range:${date}|${last}`,
+        label: `${formatShortDate(date)} 起`,
+      });
+    });
+  }
+  return ranges.filter((range, index, array) => array.findIndex((entry) => entry.value === range.value) === index);
+}
+
+function renderDebtDateFilterOptions(sessions, selectedValue) {
+  return `
+    <option value="all" ${selectedValue === "all" ? "selected" : ""}>全部日期范围</option>
+    ${getDebtDateRanges(sessions)
+      .map(
+        (range) => `<option value="${range.value}" ${selectedValue === range.value ? "selected" : ""}>${escapeHtml(range.label)}</option>`
+      )
+      .join("")}
+  `;
+}
+
+function getDebtSessionFilterValue(availableSessions) {
+  const raw = String(state.ui?.debtSessionFilter || "all");
+  if (raw === "all") return raw;
+  return availableSessions.some((session) => session.id === raw) ? raw : "all";
+}
+
+function getOutstandingDebtMap() {
+  const debtMap = new Map();
+  state.sessions.forEach((session) => {
+    getSessionDebtPlayers(session)
+      .filter((entry) => entry.outstandingAmount > 0.009)
+      .forEach((entry) => {
+        debtMap.set(entry.player.name, (debtMap.get(entry.player.name) || 0) + entry.outstandingAmount);
+      });
+  });
+  return debtMap;
+}
+
+function getSessionDateKey(session) {
+  return String(session?.date || "").slice(0, 10) || String(session?.date || "");
+}
+
+function getSessionDebtPlayers(session) {
+  return (session?.players || [])
+    .map((player, index) => {
+      const obligation = getSettlementObligation(player, toNumber(player.profit));
+      const outstandingAmount = getPlayerOutstandingAmount(player);
+      return {
+        session,
+        player,
+        index,
+        obligation,
+        outstandingAmount,
+        isSettled: obligation > 0 && outstandingAmount <= 0.009,
+      };
+    })
+    .filter((entry) => entry.obligation > 0.009 && toNumber(entry.player.profit) < 0);
+}
+
+function getDebtSessions() {
+  return state.sessions
+    .filter((session) => getSessionDebtPlayers(session).length)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
+function getDebtMinDate(sessions) {
+  return [...new Set(sessions.map(getSessionDateKey).filter(Boolean))].sort()[0] || "";
+}
+
+function getDebtMaxDate(sessions) {
+  const dates = [...new Set(sessions.map(getSessionDateKey).filter(Boolean))].sort();
+  return dates[dates.length - 1] || "";
+}
+
+function getDebtSessionsByDateRange(start, end) {
+  if (!start && !end) return getDebtSessions();
+  return getDebtSessions().filter((session) => {
+    const dateKey = getSessionDateKey(session);
+    return (!start || dateKey >= start) && (!end || dateKey <= end);
+  });
+}
+
+function renderDebtSessionFilterOptions(sessions, selectedValue) {
+  return `
+    <option value="all" ${selectedValue === "all" ? "selected" : ""}>全部牌局</option>
+    ${sessions
+      .map(
+        (session) =>
+          `<option value="${session.id}" ${selectedValue === session.id ? "selected" : ""}>${escapeHtml(formatSetupDate(session.date))} · ${escapeHtml(session.name)}</option>`
+      )
+      .join("")}
+  `;
+}
+
+function getDebtFilterGroups({ dateStart, dateEnd, sessionFilter }) {
+  const sessions = getDebtSessionsByDateRange(dateStart, dateEnd).filter(
+    (session) => sessionFilter === "all" || session.id === sessionFilter
+  );
+
+  return sessions.map((session) => ({
+    session,
+    rows: getSessionDebtPlayers(session),
+  }));
+}
+
+function renderDebtFilterGroupsMarkup(groups, { dateStart, dateEnd, sessionFilter }) {
+  if (!groups.length) {
+    return !dateStart && !dateEnd && sessionFilter === "all"
+      ? `<div class="empty-state debt-detail-empty">先选择日期范围或牌局后，再查看欠款明细。</div>`
+      : `<div class="empty-state debt-detail-empty">当前筛选下没有待查看的欠款记录。</div>`;
+  }
+
+  return groups
+    .map(
+      ({ session, rows }) => `
+        <section class="debt-session-group">
+          <div class="debt-session-head">
+            <div>
+              <h4>${escapeHtml(session.name)}</h4>
+              <p class="session-item-meta">${escapeHtml(formatSetupDate(session.date))} · ${escapeHtml(session.location || "未填写地点")}</p>
+            </div>
+            <strong class="negative">${formatCurrencyAbs(rows.reduce((sumValue, row) => sumValue + row.outstandingAmount, 0))}</strong>
+          </div>
+          <div class="debt-player-list">
+            ${rows
+              .map(
+                (row) => `
+                  <label class="debt-player-row ${row.isSettled ? "is-settled" : ""}">
+                    <input
+                      type="checkbox"
+                      data-debt-clear-toggle
+                      data-session-id="${session.id}"
+                      data-player-index="${row.index}"
+                      ${row.isSettled ? "checked" : ""}
+                    />
+                    <div class="debt-player-copy">
+                      <strong>${escapeHtml(row.player.name || `玩家 ${row.index + 1}`)}</strong>
+                      <span>${row.isSettled ? "已清账" : "待清账"} · ${escapeHtml(settlementLabel(row.player.settlementStatus))}</span>
+                    </div>
+                    <div class="debt-player-metrics">
+                      <strong class="${row.outstandingAmount > 0.009 ? "negative" : "positive"}">${formatCurrencyAbs(row.outstandingAmount > 0.009 ? row.outstandingAmount : row.obligation)}</strong>
+                      <span>${row.outstandingAmount > 0.009 ? `剩余 ${formatCurrencyAbs(row.outstandingAmount)}` : "已结清"}</span>
+                    </div>
+                  </label>
+                `
+              )
+              .join("")}
+          </div>
+        </section>
+      `
+    )
+    .join("");
+}
+
+function toggleDebtTrackerSettlement(sessionId, playerIndex, checked) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const player = session?.players?.[playerIndex];
+  if (!session || !player) return;
+  const obligation = getSettlementObligation(player, toNumber(player.profit));
+  if (obligation <= 0.009) return;
+
+  if (checked) {
+    if (toNumber(player.debtTrackerBaselineSettledAmount) <= 0.009 && toNumber(player.settledAmount) > 0.009) {
+      player.debtTrackerBaselineSettledAmount = toNumber(player.settledAmount);
+    } else if (toNumber(player.debtTrackerBaselineSettledAmount) <= 0.009) {
+      player.debtTrackerBaselineSettledAmount = 0;
+    }
+    player.settledAmount = obligation;
+  } else {
+    player.settledAmount = Math.min(toNumber(player.debtTrackerBaselineSettledAmount), obligation);
+  }
+
+  syncSavedSessionPlayerSettlement(player);
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  if (activeHistorySessionId === session.id && elements.historySessionModal.open) {
+    openHistorySessionModal(session.id, activeHistorySessionMode);
+  }
+  renderHistory();
+  renderStats();
+}
+
+function openHistorySessionModal(sessionId, mode = "settlement") {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  activeHistorySessionId = sessionId;
+  activeHistorySessionMode = mode;
+  activeHistorySettlementPlayerKey = state.ui.expandedHistorySettlementPlayerKey || "";
+  if (mode === "settlement") {
+    activeHistoryDetailPlayerKey = "";
+    activeHistoryPartnerKey = "";
+  }
+  const partnerNames = getModernPartnerNamesFromSession(session);
+  const settled = isSessionSettled(session);
+  elements.historySessionModalTitle.textContent = mode === "detail" ? `${session.name} 详情` : `${session.name} 结账记录`;
+  elements.shareLinkStatus.textContent = "";
+  elements.generateShareLinkBtn.hidden = !authContext.member;
+  elements.historySessionDetail.innerHTML =
+    mode === "detail"
+      ? renderHistorySessionDetail(session, settled)
+      : renderHistorySessionSettlement(session, partnerNames);
+  if (mode === "settlement") {
+    elements.historySessionDetail.querySelectorAll("[data-history-player-field]").forEach((field) => {
+      field.addEventListener("change", updateHistorySessionPlayerField);
+    });
+  } else {
+    elements.historySessionDetail.querySelectorAll("[data-history-session-field]").forEach((field) => {
+      field.addEventListener("change", updateHistorySessionMetaField);
+    });
+    elements.historySessionDetail.querySelectorAll("[data-history-partner-field]").forEach((field) => {
+      field.addEventListener("change", updateHistorySessionPartnerField);
+    });
+  }
+  if (shouldUseMobileSwipeUi()) bindSwipeDeleteInteractions(elements.historySessionDetail);
+  if (!elements.historySessionModal.open) {
+    elements.historySessionModal.showModal();
+  }
+}
+
+function updateHistorySessionPlayerField(event) {
+  const field = event.target.dataset.historyPlayerField;
+  const session = state.sessions.find((item) => item.id === event.target.dataset.sessionId);
+  const player = session?.players?.[Number(event.target.dataset.playerIndex)];
+  if (!session || !player || !field) return;
+  const partnerNames = getModernPartnerNamesFromSession(session);
+  if (field === "partnerName") {
+    const partnerName = String(event.target.value || "").trim();
+    player.partnerName = partnerName && partnerNames.includes(partnerName) ? partnerName : "";
+  } else {
+    player[field] = ["settledAmount", "remainingAmount", "coverAmount"].includes(field) ? toNumber(event.target.value) : event.target.value;
+  }
+  syncSavedSessionPlayerSettlement(player);
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, "settlement");
+  renderHistory();
+  renderStats();
+}
+
+function updateHistorySessionMetaField(event) {
+  const field = event.target.dataset.historySessionField;
+  const session = state.sessions.find((item) => item.id === event.target.dataset.sessionId);
+  if (!session || !field) return;
+  session[field] = toNumber(event.target.value);
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, "detail");
+  renderHistory();
+  renderStats();
+}
+
+function updateHistorySessionPartnerField(event) {
+  const field = event.target.dataset.historyPartnerField;
+  const session = state.sessions.find((item) => item.id === event.target.dataset.sessionId);
+  const partner = session?.partners?.[Number(event.target.dataset.partnerIndex)];
+  if (!session || !partner || !field) return;
+  partner[field] = toNumber(event.target.value);
+  if (field === "manualAdvance") {
+    partner.advance = partner.manualAdvance;
+  }
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, "detail");
+  renderHistory();
+  renderStats();
+}
+
+function deleteHistorySessionPlayer(sessionId, playerIndex) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const player = session?.players?.[playerIndex];
+  if (!session || !player) return;
+  if (!window.confirm(`确认删除玩家“${player.name || `玩家 ${playerIndex + 1}`}”的历史记录吗？`)) return;
+  session.players.splice(playerIndex, 1);
+  if (!session.players.length) {
+    moveSessionToTrash(sessionId);
+    return;
+  }
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, activeHistorySessionMode);
+  renderHistory();
+  renderStats();
+}
+
+function deleteHistorySessionPartner(sessionId, partnerIndex) {
+  const session = state.sessions.find((item) => item.id === sessionId);
+  const partner = session?.partners?.[partnerIndex];
+  if (!session || !partner) return;
+  if (!window.confirm(`确认删除合伙人“${partner.name || `合伙人 ${partnerIndex + 1}`}”吗？`)) return;
+  const deletedPartnerName = String(partner.name || "").trim();
+  session.partners.splice(partnerIndex, 1);
+  if (deletedPartnerName) {
+    session.players.forEach((player) => {
+      if (String(player.partnerName || "").trim() === deletedPartnerName) {
+        player.partnerName = "";
+      }
+    });
+  }
+  Object.assign(session, recomputeSavedSession(session));
+  saveState();
+  openHistorySessionModal(session.id, "detail");
+  renderHistory();
+  renderStats();
+}
+
+function syncSavedSessionPlayerSettlement(player) {
+  const profit = toNumber(player.profit);
+  player.coverAmount = profit < 0 ? Math.min(Math.max(toNumber(player.coverAmount), 0), Math.abs(profit)) : 0;
+  player.settledAmount = Math.max(toNumber(player.settledAmount), 0);
+  player.remainingAmount = getPlayerOutstandingAmount(player);
+  const obligation = getSettlementObligation(player, profit);
+  player.settlementStatus =
+    obligation <= 0.009
+      ? "settled"
+      : player.remainingAmount <= 0.009
+      ? "settled"
+      : player.settledAmount > 0 || player.coverAmount > 0
+      ? "partial"
+      : "pending";
+}
+
+async function generateShareLinkForActiveSession() {
+  if (!activeHistorySessionId || !authContext.client || !authContext.member) return;
+  const session = state.sessions.find((item) => item.id === activeHistorySessionId);
+  if (!session) return;
+  const shareTokenValue = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString();
+  elements.generateShareLinkBtn.disabled = true;
+  try {
+    const payload = {
+      workspace_id: config.workspaceId,
+      session_id: session.id,
+      session_name: session.name,
+      share_token: shareTokenValue,
+      share_snapshot: cloneState(session),
+      expires_at: expiresAt,
+      created_by: authContext.user?.email || authContext.member.email,
+    };
+    const { error } = await authContext.client.from(config.shareTable).insert(payload);
+    if (error) throw error;
+    const shareUrl = `${window.location.origin}${window.location.pathname}?share=${shareTokenValue}`;
+    await navigator.clipboard.writeText(shareUrl);
+    elements.shareLinkStatus.textContent = `分享链接已复制，14 天有效：${formatSyncTime(expiresAt)}`;
+  } catch (error) {
+    console.error("generate share link failed", error);
+    elements.shareLinkStatus.textContent = "生成分享链接失败，请先执行新的 Supabase SQL。";
+  } finally {
+    elements.generateShareLinkBtn.disabled = false;
+  }
+}
+
+function renderHistorySessionDetail(session, settled) {
+  const summary = getSavedSessionMetrics(session);
+  const mobileSwipeUi = shouldUseMobileSwipeUi();
+  return `
+    <section class="subcard history-detail-summary">
+      <div class="session-item-top history-detail-head">
+        <div>
+          <h4>${escapeHtml(session.name)}</h4>
+          <p class="session-item-meta">${escapeHtml(session.date)} · ${escapeHtml(session.location || "未填写地点")} · ${toNumber(session.durationHours).toFixed(2)} 小时</p>
+        </div>
+        <span class="settlement-badge ${settled ? "settlement-badge-settled" : "settlement-badge-unsettled"}">${settled ? "已结清" : "未结清"}</span>
+      </div>
+      <div class="session-summary-grid history-dense-grid">
+        <div class="session-summary-item"><span>净利润</span><strong class="${session.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(session.netProfit)}</strong></div>
+        <div class="session-summary-item"><span>总 Cover</span><strong class="${toNumber(session.totalCover) > 0 ? "negative" : ""}">${formatCurrency(toNumber(session.totalCover))}</strong></div>
+        <div class="session-summary-item"><span>Hourly 抽水</span><strong class="${summary.hourlyRake >= 0 ? "positive" : "negative"}">${formatCurrency(summary.hourlyRake)}</strong></div>
+        <div class="session-summary-item"><span>Hourly 净利润</span><strong class="${summary.hourlyNetProfit >= 0 ? "positive" : "negative"}">${formatCurrency(summary.hourlyNetProfit)}</strong></div>
+        <div class="session-summary-item"><span>总抽水</span><strong class="${summary.grossRake >= 0 ? "positive" : "negative"}">${formatCurrency(summary.grossRake)}</strong></div>
+      </div>
+    </section>
+    <section class="subcard">
+      <div class="section-head compact">
+        <div>
+          <p class="section-kicker">Cost Editor</p>
+          <h4>历史成本修正</h4>
+        </div>
+      </div>
+      <div class="history-cost-editor">
+        <label>
+          <span>河官工资（可编辑）</span>
+          <input class="plain-entry-input" data-history-session-field="dealerFee" data-session-id="${session.id}" type="text" inputmode="decimal" value="${toNumber(session.dealerFee)}" />
+        </label>
+        <label>
+          <span>总 Cover（自动）</span>
+          <input class="plain-entry-input" type="text" value="${toNumber(session.totalCover)}" disabled />
+        </label>
+      </div>
+    </section>
+    <section class="stack">
+      <section class="subcard">
+        <div class="section-head compact">
+          <div>
+            <p class="section-kicker">Partner Detail</p>
+            <h4>合伙人账务</h4>
+          </div>
+        </div>
+        <div class="partner-detail-list">
+          ${session.partners
+            .map((partner, index) => {
+              const detail = getSavedSessionPartnerDetail(session, partner);
+              const partnerKey = `${session.id}:partner:${index}`;
+              const expanded = activeHistoryPartnerKey === partnerKey;
+              const partnerContent = `
+                ${mobileSwipeUi ? "" : `<div class="history-partner-header-actions"><button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-history-partner" data-session-id="${session.id}" data-partner-index="${index}">删除</button></div>`}
+                <button class="history-compact-toggle history-partner-toggle" type="button" data-history-action="toggle-history-partner" data-partner-key="${partnerKey}">
+                  <span class="history-compact-name">${escapeHtml(partner.name || `合伙人 ${index + 1}`)}</span>
+                  <span class="history-compact-metric ${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</span>
+                  <span class="history-compact-label">在桌 ${formatCurrency(detail.tableProfit)}</span>
+                  <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+                </button>
+                <div class="history-compact-details history-dense-grid" ${expanded ? "" : "hidden"}>
+                  <div class="session-summary-item"><span>应得分水</span><strong>${formatCurrency(detail.profitShare)}</strong></div>
+                  <div class="session-summary-item"><span>与局里账务</span><strong class="${detail.balanceWithSession >= 0 ? "positive" : "negative"}">${formatCurrency(detail.balanceWithSession)}</strong></div>
+                  <div class="session-summary-item"><span>当前收账 / 垫账</span><strong class="${detail.advance <= 0 ? "positive" : "negative"}">${formatCurrency(detail.advance)}</strong></div>
+                  <div class="session-summary-item"><span>实际应到手</span><strong class="${detail.actualTakeHome >= 0 ? "positive" : "negative"}">${formatCurrency(detail.actualTakeHome)}</strong></div>
+                </div>
+                <div class="history-edit-grid" ${expanded ? "" : "hidden"}>
+                  <label>
+                    <span>成本（可编辑）</span>
+                    <input class="plain-entry-input" data-history-partner-field="cost" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.cost)}" />
+                  </label>
+                  <label>
+                    <span>收账 / 垫账（可编辑）</span>
+                    <input class="plain-entry-input" data-history-partner-field="manualAdvance" data-session-id="${session.id}" data-partner-index="${index}" type="text" inputmode="decimal" value="${toNumber(partner.manualAdvance ?? partner.advance)}" />
+                  </label>
+                </div>
+              `;
+              return mobileSwipeUi
+                ? `
+                  <article class="partner-detail-card swipe-delete-shell" data-swipe-delete>
+                    <div class="swipe-delete-action">
+                      <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-partner" data-session-id="${session.id}" data-partner-index="${index}">删除</button>
+                    </div>
+                    <div class="swipe-delete-track">${partnerContent}</div>
+                  </article>
+                `
+                : `
+                  <article class="partner-detail-card">${partnerContent}</article>
+                `;
+            })
+            .join("")}
+        </div>
+      </section>
+    </section>
+    <section class="stack">
+      ${session.players
+        .map((player, index) => renderHistoryPlayerDetailCard(session, player, index))
+        .join("")}
+    </section>
+  `;
+}
+
+function renderHistorySessionSettlement(session, partnerNames) {
+  const mobileSwipeUi = shouldUseMobileSwipeUi();
+  return session.players
+    .map((player, index) => {
+      const profit = toNumber(player.profit);
+      const outstanding = getPlayerOutstandingAmount(player);
+      const playerKey = `${session.id}:${index}`;
+      const expanded = activeHistorySettlementPlayerKey === playerKey;
+      const playerContent = `
+        ${mobileSwipeUi ? "" : `<div class="history-player-header-actions"><button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button></div>`}
+        <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-settlement-player" data-player-key="${playerKey}">
+          <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
+          <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
+          <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
+          <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
+          <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+        </button>
+        <div class="history-edit-grid history-settlement-edit-grid" ${expanded ? "" : "hidden"}>
+          <label>
+            <span>已结金额</span>
+            <input class="plain-entry-input" data-history-player-field="settledAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${toNumber(player.settledAmount)}" />
+          </label>
+          <label>
+            <span>Cover 金额</span>
+            <input class="plain-entry-input" data-history-player-field="coverAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" inputmode="decimal" value="${getPlayerCoverAmount(player)}" ${profit > 0 ? "disabled" : ""} />
+          </label>
+          <label>
+            <span>${profit > 0 ? "待付金额" : "剩余欠款"}</span>
+            <input class="plain-entry-input" data-history-player-field="remainingAmount" data-session-id="${session.id}" data-player-index="${index}" type="text" value="${outstanding}" readonly />
+          </label>
+          <label>
+            <span>收款人</span>
+            <select data-history-player-field="partnerName" data-session-id="${session.id}" data-player-index="${index}">
+              <option value="">未记录</option>
+              ${partnerNames
+                .map((partnerName) => `<option value="${escapeHtml(partnerName)}" ${player.partnerName === partnerName ? "selected" : ""}>${escapeHtml(partnerName)}</option>`)
+                .join("")}
+            </select>
+          </label>
+        </div>
+        <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
+          <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
+          <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
+          <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
+          <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
+        </div>
+      `;
+      return mobileSwipeUi
+        ? `
+          <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
+            <div class="swipe-delete-action">
+              <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
+            </div>
+            <div class="swipe-delete-track">${playerContent}</div>
+          </article>
+        `
+        : `
+          <article class="subcard history-player-card">${playerContent}</article>
+        `;
+    })
+    .join("");
+}
+
+function renderHistoryPlayerDetailCard(session, player, index) {
+  const profit = toNumber(player.profit);
+  const outstanding = getPlayerOutstandingAmount(player);
+  const playerKey = `${session.id}:detail:${index}`;
+  const expanded = activeHistoryDetailPlayerKey === playerKey;
+  const mobileSwipeUi = shouldUseMobileSwipeUi();
+  const playerContent = `
+    ${mobileSwipeUi ? "" : `<div class="history-player-header-actions"><button class="ghost-button danger-button compact-action-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button></div>`}
+    <button class="history-compact-toggle history-player-toggle" type="button" data-history-action="toggle-history-detail-player" data-player-key="${playerKey}">
+      <span class="history-compact-name">${escapeHtml(player.name || `玩家 ${index + 1}`)}</span>
+      <span class="history-compact-metric ${profit >= 0 ? "positive" : "negative"}">${formatCurrency(profit)}</span>
+      <span class="history-compact-label">${escapeHtml(settlementLabel(player.settlementStatus))}</span>
+      <span class="history-compact-metric ${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</span>
+      <span class="history-compact-chevron">${expanded ? "收起" : "展开"}</span>
+    </button>
+    <div class="history-player-secondary-grid" ${expanded ? "" : "hidden"}>
+      <div class="session-summary-item"><span>总 Buyin</span><strong>${formatCurrency(player.totalBuyIn)}</strong></div>
+      <div class="session-summary-item"><span>Cash Out</span><strong>${formatCurrency(player.cashOut)}</strong></div>
+      <div class="session-summary-item"><span>已结金额</span><strong>${formatCurrency(toNumber(player.settledAmount))}</strong></div>
+      <div class="session-summary-item"><span>Cover</span><strong>${formatCurrency(getPlayerCoverAmount(player))}</strong></div>
+      <div class="session-summary-item"><span>未结金额</span><strong class="${outstanding > 0 ? "negative" : "positive"}">${formatCurrency(outstanding)}</strong></div>
+      <div class="session-summary-item"><span>收款人</span><strong>${escapeHtml(player.partnerName || "未记录")}</strong></div>
+    </div>
+  `;
+  return mobileSwipeUi
+    ? `
+      <article class="subcard history-player-card swipe-delete-shell" data-swipe-delete>
+        <div class="swipe-delete-action">
+          <button class="ghost-button danger-button compact-action-button swipe-delete-button" type="button" data-history-action="delete-history-player" data-session-id="${session.id}" data-player-index="${index}">删除</button>
+        </div>
+        <div class="swipe-delete-track">${playerContent}</div>
+      </article>
+    `
+    : `
+      <article class="subcard history-player-card">${playerContent}</article>
+    `;
+}
+
+function renderPlayerOptions() {
+  const selected = elements.playerInsightSelect.value;
+  const sortedPlayers = state.players
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"))
+    .map((player) => `<option value="${player.id}">${escapeHtml(player.name)}</option>`)
+    .join("");
+  elements.playerInsightSelect.innerHTML = sortedPlayers;
+  elements.mergeSourcePlayerSelect.innerHTML = `<option value="">选择需要合并的玩家</option>${sortedPlayers}`;
+  if (selected) elements.playerInsightSelect.value = selected;
+}
+
+function overwriteLocalState(snapshot, options = {}) {
+  const normalized = normalizeRootState(snapshot);
+  Object.keys(state).forEach((key) => delete state[key]);
+  Object.assign(state, normalized);
+  ensureDraftSession();
+  if (!options.skipPersist) {
+    saveState({ skipRemote: true });
+  }
+  render();
+}
+
+function createSelfCheckFixtureSession() {
+  return normalizeSession({
+    id: "self-check-session",
+    name: "Self Check Session",
+    date: "2026-07-05T20:00",
+    location: "Fort lee",
+    dealerFee: 200,
+    dealerShareEnabled: "No",
+    dealerSharePercent: 0,
+    collaborationSharePercent: 0,
+    totalBuyIn: 60000,
+    totalCashOut: 60000,
+    players: [
+      {
+        playerId: "p-loser",
+        name: "Loser",
+        totalBuyIn: 50000,
+        cashOut: 5000,
+        profit: -45000,
+        settledAmount: 40000,
+        coverAmount: 5000,
+        remainingAmount: 0,
+        settlementStatus: "settled",
+        partnerName: "",
+      },
+      {
+        playerId: "p-winner",
+        name: "Winner",
+        totalBuyIn: 10000,
+        cashOut: 55000,
+        profit: 45000,
+        settledAmount: 45000,
+        coverAmount: 0,
+        remainingAmount: 0,
+        settlementStatus: "settled",
+        partnerName: "Blue",
+      },
+    ],
+    partners: [
+      {
+        name: "Blue",
+        sharePercent: 100,
+        cost: 300,
+        manualAdvance: 0,
+        advance: 0,
+      },
+    ],
+  });
+}
+
+function assertSelfCheck(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function runSelfCheckPass() {
+  const session = createSelfCheckFixtureSession();
+  overwriteLocalState(
+    {
+      ui: { activeView: "history", expandedPlayerId: "", expandedHistorySettlementPlayerKey: "" },
+      draftSession: createDefaultDraftSession(),
+      sessions: [session],
+      deletedSessions: [],
+      players: [],
+      meta: state.meta,
+    },
+    { skipPersist: true }
+  );
+
+  const current = state.sessions[0];
+  assertSelfCheck(toNumber(current.totalCover) === 5000, "Cover 未计入历史账单总额");
+  assertSelfCheck(toNumber(current.netProfit) === -5500, "Cover 或成本未正确反映到净利润");
+  assertSelfCheck(getPlayerOutstandingAmount(current.players[0]) === 0, "Loser 的 cover 后剩余欠款应为 0");
+
+  current.dealerFee = 1200;
+  Object.assign(current, recomputeSavedSession(current));
+  assertSelfCheck(toNumber(current.netProfit) === -6500, "修改历史河官工资后净利润未重算");
+
+  deleteHistorySessionPartner(current.id, 0);
+  assertSelfCheck(state.sessions[0].partners.length === 0, "历史合伙人删除失败");
+
+  const refreshed = state.sessions[0];
+  deleteHistorySessionPlayer(refreshed.id, 1);
+  assertSelfCheck(state.sessions[0].players.length === 1, "历史玩家删除失败");
+
+  moveSessionToTrash(refreshed.id, { skipPersist: true });
+  assertSelfCheck(state.sessions.length === 0 && state.deletedSessions.length === 1, "账单未进入垃圾箱");
+
+  restoreSessionFromTrash(refreshed.id, { skipPersist: true });
+  assertSelfCheck(state.sessions.length === 1 && state.deletedSessions.length === 0, "垃圾箱恢复失败");
+
+  state.deletedSessions.push({
+    id: "expired-session",
+    deletedAt: "2026-07-03T00:00:00.000Z",
+    restoreBefore: "2026-07-04T00:00:00.000Z",
+    session: createSelfCheckFixtureSession(),
+  });
+  purgeExpiredDeletedSessions();
+  assertSelfCheck(!state.deletedSessions.some((entry) => entry.id === "expired-session"), "过期垃圾箱账单未清理");
+
+  return {
+    totalCover: state.sessions[0].totalCover,
+    netProfit: state.sessions[0].netProfit,
+    deletedSessions: state.deletedSessions.length,
+  };
+}
+
+async function runSelfCheckLoop() {
+  const originalState = cloneState(state);
+  const originalConfirm = window.confirm;
+  const report = [];
+  window.confirm = () => true;
+  try {
+    for (let pass = 1; pass <= 2; pass += 1) {
+      const result = runSelfCheckPass();
+      report.push({ pass, ok: true, result });
+    }
+    return { ok: true, report };
+  } catch (error) {
+    report.push({ ok: false, error: error.message || String(error) });
+    return { ok: false, report };
+  } finally {
+    window.confirm = originalConfirm;
+    overwriteLocalState(originalState, { skipPersist: true });
+  }
+}
+
+function mergePlayers() {
+  const sourceId = elements.mergeSourcePlayerSelect.value;
+  const targetName = String(elements.mergeTargetPlayerInput.value || "").trim();
+  const sourcePlayer = state.players.find((player) => player.id === sourceId);
+  if (!sourcePlayer || !targetName) return;
+  const sourceName = sourcePlayer.name;
+  const normalizedTargetName = targetName;
+  const existingTarget = state.players.find(
+    (player) => player.id !== sourceId && player.name.toLowerCase() === normalizedTargetName.toLowerCase()
+  );
+  const targetId = existingTarget?.id || sourcePlayer.id;
+  const finalTargetName = existingTarget?.name || normalizedTargetName;
+
+  state.sessions.forEach((session) => {
+    session.players.forEach((player) => {
+      const sameSource = player.playerId === sourceId || String(player.name || "").trim().toLowerCase() === sourceName.toLowerCase();
+      if (!sameSource) return;
+      player.playerId = targetId;
+      player.name = finalTargetName;
+    });
+    Object.assign(session, recomputeSavedSession(session));
+  });
+
+  state.draftSession.players.forEach((player) => {
+    if (String(player.name || "").trim().toLowerCase() === sourceName.toLowerCase()) {
+      player.name = finalTargetName;
+    }
+  });
+
+  if (existingTarget) {
+    state.players = state.players.filter((player) => player.id !== sourceId);
+  } else {
+    sourcePlayer.name = finalTargetName;
+  }
+
+  elements.mergePlayersStatus.textContent = `${sourceName} 已合并到 ${finalTargetName}`;
+  elements.mergeSourcePlayerSelect.value = "";
+  elements.mergeTargetPlayerInput.value = finalTargetName;
+  saveState();
+  render();
+}
+
+function renderPlayerInsight() {
+  const playerId = elements.playerInsightSelect.value || state.players[0]?.id;
+  if (!playerId) {
+    elements.playerInsight.className = "player-insight empty-state";
+    elements.playerInsight.innerHTML = "暂无玩家数据。";
+    return;
+  }
+
+  const stats = getPlayerStats(playerId);
+  elements.playerInsight.className = "player-insight";
+  elements.playerInsight.innerHTML = `
+    <div class="insight-grid">
+      ${metricCard("累计净盈利", formatCurrency(stats.netProfit), stats.netProfit >= 0)}
+      ${metricCard("平均买入", formatCurrency(stats.averageBuyIn))}
+      ${metricCard("每小时盈利", formatCurrency(stats.hourlyProfit), stats.hourlyProfit >= 0)}
+      ${metricCard("参与场次", `${stats.sessionCount}`)}
+      ${metricCard("累计 Cash Out", formatCurrency(stats.totalCashOut))}
+      ${metricCard("ROI", `${stats.roi.toFixed(1)}%`, stats.roi >= 0)}
+    </div>
+    <div class="chart-card compact-chart-card">
+      <h3>${escapeHtml(stats.name)} 盈利曲线</h3>
+      ${renderProfitChart(stats.profitCurve)}
+    </div>
+  `;
+}
+
+function getPlayerStats(playerId) {
+  const player = state.players.find((item) => item.id === playerId);
+  const entries = state.sessions
+    .map((session) => session.players.find((entry) => entry.playerId === playerId))
+    .filter(Boolean);
+  const sessionCount = entries.length;
+  const totalBuyIn = sum(entries.map((entry) => entry.totalBuyIn));
+  const totalCashOut = sum(entries.map((entry) => entry.cashOut));
+  const netProfit = sum(entries.map((entry) => entry.profit));
+  const totalHours = sum(
+    state.sessions
+      .filter((session) => session.players.some((entry) => entry.playerId === playerId))
+      .map((session) => session.durationHours)
+  );
+  let running = 0;
+  const profitCurve = entries.map((entry, index) => {
+    running += entry.profit;
+    return { label: `${index + 1}`, value: running };
+  });
+
+  return {
+    name: player?.name || "",
+    sessionCount,
+    averageBuyIn: sessionCount ? totalBuyIn / sessionCount : 0,
+    totalCashOut,
+    netProfit,
+    hourlyProfit: totalHours ? netProfit / totalHours : 0,
+    roi: totalBuyIn ? (netProfit / totalBuyIn) * 100 : 0,
+    profitCurve,
+  };
+}
+
+function renderLeaderboard() {
+  const metric = elements.leaderboardMetric.value;
+  const filters = elements.leaderboardFilter.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean);
+  const stats = state.players
+    .map((player) => ({ id: player.id, name: player.name, ...getPlayerStats(player.id) }))
+    .filter((player) => !filters.length || filters.includes(player.name))
+    .sort((a, b) => (b[metric] || 0) - (a[metric] || 0));
+  const pageSize = 10;
+  const totalPages = Math.max(Math.ceil(stats.length / pageSize), 1);
+  state.ui.leaderboardPage = Math.min(Math.max(state.ui.leaderboardPage || 1, 1), totalPages);
+  const pageStart = (state.ui.leaderboardPage - 1) * pageSize;
+  const pageItems = stats.slice(pageStart, pageStart + pageSize);
+  if (elements.leaderboardPageIndicator) {
+    elements.leaderboardPageIndicator.textContent = `第 ${state.ui.leaderboardPage} / ${totalPages} 页`;
+  }
+  if (elements.leaderboardPrevBtn) elements.leaderboardPrevBtn.disabled = state.ui.leaderboardPage <= 1;
+  if (elements.leaderboardNextBtn) elements.leaderboardNextBtn.disabled = state.ui.leaderboardPage >= totalPages;
+
+  elements.leaderboard.innerHTML = pageItems.length
+    ? pageItems
+        .map(
+          (player, index) => `
+            <article class="leaderboard-row leaderboard-player-pill">
+              <div class="leaderboard-player-copy">
+                <div class="leaderboard-player-head">
+                  <span class="leaderboard-rank">${pageStart + index + 1}</span>
+                  <h3>${escapeHtml(player.name)}</h3>
+                </div>
+                <p>ROI ${player.roi.toFixed(1)}% · ${player.sessionCount} 场</p>
+              </div>
+              <strong class="leaderboard-score leaderboard-player-total ${player.netProfit >= 0 ? "positive" : "negative"}">${formatCurrency(
+                player.netProfit || 0
+              )}</strong>
+            </article>
+          `
+        )
+        .join("")
+    : `<div class="empty-state">暂无可统计数据。</div>`;
+}
+
+function renderHeroStats() {
+  elements.heroSessionCount.textContent = `${state.sessions.length}`;
+  elements.heroPlayerCount.textContent = `${state.players.length}`;
+}
+
+function upsertPlayer(name) {
+  const normalized = name.trim();
+  const existing = state.players.find((player) => player.name === normalized);
+  if (existing) return existing.id;
+  const player = { id: crypto.randomUUID(), name: normalized };
+  state.players.push(player);
+  return player.id;
+}
+
+function getAllKnownPlayerNames() {
+  return [...new Set(state.players.map((player) => player.name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "zh-CN")
+  );
+}
+
+function renderProfitChart(points) {
+  if (!points.length) return `<div class="empty-state">暂无曲线数据。</div>`;
+  const width = 640;
+  const height = 200;
+  const values = points.map((point) => point.value);
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 0);
+  const range = max - min || 1;
+  const step = points.length > 1 ? width / (points.length - 1) : width;
+  const coords = points
+    .map((point, index) => `${index * step},${height - ((point.value - min) / range) * height}`)
+    .join(" ");
+  return `<svg class="chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><polyline class="baseline" points="0,${height - ((0 - min) / range) * height} ${width},${height - ((0 - min) / range) * height}"></polyline><polyline points="${coords}"></polyline></svg>`;
+}
+
+function metricCard(label, value, positive = null) {
+  const className = positive === null ? "" : positive ? "positive" : "negative";
+  return `<article class="overview-card"><p>${label}</p><strong class="${className}">${value}</strong></article>`;
+}
+
+function formatCurrency(value) {
+  const amount = Number(value || 0);
+  const sign = amount > 0 ? "+" : "";
+  return `${sign}${amount.toFixed(2)}`;
+}
+
+function formatCurrencyAbs(value) {
+  return Number(Math.abs(value || 0)).toFixed(2);
+}
+
+function toNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function sum(values) {
+  return values.reduce((total, current) => total + Number(current || 0), 0);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
